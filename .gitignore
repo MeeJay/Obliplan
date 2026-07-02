@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.log
+.env
+.env.local
+*.tsbuildinfo
+.DS_Store
+coverage/
+
+# Local dev / release tooling — kept on disk, NOT published to GitHub
+*.bat
+*.ps1
+/scripts/ensure-github.mjs
+/scripts/ensure-dockerhub-public.mjs

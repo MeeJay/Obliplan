@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr" data-theme="obli-operator">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Declares the page manages its own light/dark palettes, so Chrome's "Auto Dark
+         Mode for Web Contents" won't algorithmically re-invert our themes (which turns
+         the light theme into an ugly high-contrast mess, on every Obli app). -->
+    <meta name="color-scheme" content="light dark" />
+    <title>Obliplan</title>
+    <!-- FOUC guard: apply the saved theme + its color-scheme before the stylesheet
+         paints, so a light theme doesn't flash the dark default (or get force-darkened)
+         on reload. Must stay synchronous + inline. -->
+    <style>
+      [data-theme='obli-daylight'] {
+        color-scheme: light;
+      }
+      [data-theme='obli-operator'],
+      [data-theme='modern'],
+      [data-theme='neon'] {
+        color-scheme: dark;
+      }
+      [data-theme='obli-daylight'] body {
+        background: #fafbfd;
+      }
+    </style>
+    <script>
+      try {
+        var t = localStorage.getItem('obliplan_theme');
+        if (t === 'obli-operator' || t === 'obli-daylight' || t === 'modern' || t === 'neon') {
+          document.documentElement.dataset.theme = t;
+        }
+      } catch (e) {}
+    </script>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#7c6cff" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- iOS ignores SVG apple-touch-icons; a raster PNG is required for the home-screen mark. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- Opaque status bar: content starts below it, so the fixed Header never renders under the notch. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Obliplan" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

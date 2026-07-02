@@ -1,0 +1,165 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Print isolation: only an element marked `.print-recap` is printed (used by the
+   overtime manager recap), so window.print() yields a clean sheet, not the whole app. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-recap,
+  .print-recap * {
+    visibility: visible;
+  }
+  .print-recap {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Theme tokens — shared Obli* design system v1. Values are space-separated RGB
+   triplets so Tailwind's opacity modifier (bg-accent/30) works.
+   Obliplan's per-app accent is violet (#7c6cff / #9d8cff).
+   ───────────────────────────────────────────────────────────────────────────── */
+:root,
+[data-theme='obli-operator'] {
+  /* Tell the browser this is an intentional dark UI: stops Chrome's "Auto Dark Mode
+     for Web Contents" from algorithmically re-inverting our themes into an ugly
+     high-contrast mess (it also fixes native scrollbars/form controls). */
+  color-scheme: dark;
+  --c-bg-primary: 11 13 26;
+  --c-bg-secondary: 19 23 40;
+  --c-bg-tertiary: 24 28 48;
+  --c-bg-hover: 24 28 48;
+  --c-bg-active: 29 34 56;
+  --c-border: 30 36 60;
+  --c-border-light: 40 48 78;
+  --c-text-primary: 232 236 245;
+  --c-text-secondary: 140 147 182;
+  --c-text-muted: 75 82 115;
+  --c-status-up: 30 221 138;
+  --c-status-up-bg: 5 50 28;
+  --c-status-down: 224 58 58;
+  --c-status-down-bg: 50 13 13;
+  --c-status-pending: 245 166 35;
+  --c-status-pending-bg: 46 33 17;
+  --c-status-maintenance: 124 108 255;
+  --c-status-maintenance-bg: 28 24 64;
+  --c-accent: 124 108 255;
+  --c-accent-hover: 157 140 255;
+  --c-accent-dark: 86 70 200;
+  --c-primary: 124 108 255;
+}
+
+/* Obli Daylight - light companion to Obli Operator. Soft-white surfaces, depth via
+   shadow rather than heavy borders, Obliplan indigo accent (#6366f1) tuned for white.
+   Tokens are solid RGB triplets (never `R G B / A`) because Tailwind wires each as
+   `rgb(var(--token) / <alpha-value>)`, so an embedded alpha would break the utility.
+   Color semantics are preserved from Obli Operator: down=red, pending=amber,
+   maintenance=accent - only the lightness is inverted. */
+[data-theme='obli-daylight'] {
+  /* Intentional LIGHT UI - opts the page out of Chrome force-dark inversion. */
+  color-scheme: light;
+  --c-bg-primary: 250 251 253;
+  --c-bg-secondary: 255 255 255;
+  --c-bg-tertiary: 243 245 249;
+  --c-bg-hover: 236 239 244;
+  --c-bg-active: 226 231 239;
+  --c-border: 226 232 240;
+  --c-border-light: 203 213 225;
+  --c-text-primary: 15 23 42;
+  --c-text-secondary: 71 85 105;
+  --c-text-muted: 148 163 184;
+  --c-status-up: 16 163 96;
+  --c-status-up-bg: 220 252 231;
+  --c-status-down: 220 38 38;
+  --c-status-down-bg: 254 226 226;
+  --c-status-pending: 217 119 6;
+  --c-status-pending-bg: 254 243 199;
+  --c-status-maintenance: 99 102 241;
+  --c-status-maintenance-bg: 224 231 255;
+  --c-accent: 99 102 241;
+  --c-accent-hover: 129 140 248;
+  --c-accent-dark: 67 56 202;
+  --c-primary: 99 102 241;
+}
+
+/* On white, the dark elevation shadow reads as grime - swap in a soft light one. */
+[data-theme='obli-daylight'] .shadow-card {
+  box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.04), 0 6px 24px -12px rgba(15, 23, 42, 0.1);
+}
+
+[data-theme='modern'] {
+  color-scheme: dark;
+  --c-bg-primary: 12 12 16;
+  --c-bg-secondary: 18 18 24;
+  --c-bg-tertiary: 24 24 32;
+  --c-bg-hover: 28 28 38;
+  --c-bg-active: 34 32 52;
+  --c-border: 36 36 48;
+  --c-border-light: 52 52 68;
+  --c-text-primary: 234 234 244;
+  --c-text-secondary: 150 150 172;
+  --c-text-muted: 104 104 128;
+  --c-status-up: 46 160 67;
+  --c-status-up-bg: 13 40 24;
+  --c-status-down: 248 81 73;
+  --c-status-down-bg: 61 20 24;
+  --c-status-pending: 210 153 34;
+  --c-status-pending-bg: 46 33 17;
+  --c-status-maintenance: 124 108 255;
+  --c-status-maintenance-bg: 28 24 64;
+  --c-accent: 124 108 255;
+  --c-accent-hover: 157 140 255;
+  --c-accent-dark: 86 70 200;
+  --c-primary: 124 108 255;
+}
+
+[data-theme='neon'] {
+  color-scheme: dark;
+  --c-bg-primary: 7 8 12;
+  --c-bg-secondary: 13 14 20;
+  --c-bg-tertiary: 19 20 28;
+  --c-bg-hover: 27 27 38;
+  --c-bg-active: 36 34 56;
+  --c-border: 48 48 62;
+  --c-border-light: 64 62 86;
+  --c-text-primary: 238 236 248;
+  --c-text-secondary: 150 144 180;
+  --c-text-muted: 102 96 134;
+  --c-status-up: 56 189 248;
+  --c-status-up-bg: 4 20 32;
+  --c-status-down: 255 56 96;
+  --c-status-down-bg: 42 0 16;
+  --c-status-pending: 255 170 0;
+  --c-status-pending-bg: 32 21 0;
+  --c-status-maintenance: 157 140 255;
+  --c-status-maintenance-bg: 28 24 64;
+  --c-accent: 157 140 255;
+  --c-accent-hover: 188 176 255;
+  --c-accent-dark: 110 92 230;
+  --c-primary: 157 140 255;
+}
+
+@layer base {
+  body {
+    @apply bg-bg-primary text-text-primary antialiased;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-primary;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-border-light;
+  }
+}
