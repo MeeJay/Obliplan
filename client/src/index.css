@@ -55,42 +55,44 @@
   --c-primary: 124 108 255;
 }
 
-/* Obli Daylight - light companion to Obli Operator. Soft-white surfaces, depth via
-   shadow rather than heavy borders, Obliplan indigo accent (#6366f1) tuned for white.
-   Tokens are solid RGB triplets (never `R G B / A`) because Tailwind wires each as
-   `rgb(var(--token) / <alpha-value>)`, so an embedded alpha would break the utility.
-   Color semantics are preserved from Obli Operator: down=red, pending=amber,
-   maintenance=accent - only the lightness is inverted. */
+/* Obli Daylight - light companion to Obli Operator, "Nordic Mist" revision (Nord Snow
+   Storm surfaces + Polar Night text): a cushioned blue-gray, softer on the eyes than
+   near-white over long sessions. Only the SURFACES change - the accent stays Obliplan's
+   Operator VIOLET (brand identity is unchanged in Daylight, per the kit). Tokens are solid
+   RGB triplets (never `R G B / A`) because Tailwind wires each as `rgb(var(--token) /
+   <alpha-value>)`, so an embedded alpha would break the utility (thick black borders).
+   Obliplan-specific status semantics kept: down=red, pending=amber, maintenance=accent. */
 [data-theme='obli-daylight'] {
   /* Intentional LIGHT UI - opts the page out of Chrome force-dark inversion. */
   color-scheme: light;
-  --c-bg-primary: 250 251 253;
-  --c-bg-secondary: 255 255 255;
-  --c-bg-tertiary: 243 245 249;
-  --c-bg-hover: 236 239 244;
-  --c-bg-active: 226 231 239;
-  --c-border: 226 232 240;
-  --c-border-light: 203 213 225;
-  --c-text-primary: 15 23 42;
-  --c-text-secondary: 71 85 105;
-  --c-text-muted: 148 163 184;
+  --c-bg-primary: 229 233 240;
+  --c-bg-secondary: 236 239 244;
+  --c-bg-tertiary: 216 222 233;
+  --c-bg-hover: 222 227 236;
+  --c-bg-active: 210 217 229;
+  --c-border: 212 220 231;
+  --c-border-light: 224 230 240;
+  --c-text-primary: 46 52 64;
+  --c-text-secondary: 76 86 106;
+  --c-text-muted: 129 141 161;
   --c-status-up: 16 163 96;
   --c-status-up-bg: 220 252 231;
   --c-status-down: 220 38 38;
   --c-status-down-bg: 254 226 226;
   --c-status-pending: 217 119 6;
   --c-status-pending-bg: 254 243 199;
-  --c-status-maintenance: 99 102 241;
-  --c-status-maintenance-bg: 224 231 255;
-  --c-accent: 99 102 241;
-  --c-accent-hover: 129 140 248;
-  --c-accent-dark: 67 56 202;
-  --c-primary: 99 102 241;
+  --c-status-maintenance: 124 108 255;
+  --c-status-maintenance-bg: 233 230 255;
+  /* Accent = Obliplan's Operator violet, unchanged (Daylight only retunes surfaces). */
+  --c-accent: 124 108 255;
+  --c-accent-hover: 157 140 255;
+  --c-accent-dark: 86 70 200;
+  --c-primary: 124 108 255;
 }
 
-/* On white, the dark elevation shadow reads as grime - swap in a soft light one. */
+/* Soft Polar-Night elevation shadow tuned for the Nordic Mist surface. */
 [data-theme='obli-daylight'] .shadow-card {
-  box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.04), 0 6px 24px -12px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 1px 2px 0 rgba(46, 52, 64, 0.03), 0 6px 24px -12px rgba(46, 52, 64, 0.08);
 }
 
 [data-theme='modern'] {

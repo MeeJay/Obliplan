@@ -70,8 +70,9 @@ export function Header() {
         <TenantSwitcher />
       </div>
 
-      {/* App switcher pills - current app + every Obli* app Obligate grants access to */}
-      <div className="ml-1.5 hidden gap-1 md:flex">
+      {/* App switcher - container-wrapped pill group (Obli kit): a subtle inset frame
+          (bg-hover, matching the user pill on the right) with the current app raised. */}
+      <div className="ml-1.5 hidden items-center gap-1 rounded-lg bg-bg-hover p-1 md:flex">
         {APP_DISPLAY_ORDER.map((type) => {
           const isCurrent = type === CURRENT_APP;
           const app = appsByType.get(type);
@@ -94,16 +95,13 @@ export function Header() {
               onClick={onClick}
               disabled={isCurrent}
               className={cn(
-                'flex items-center gap-[7px] rounded-[7px] px-3 py-1.5 text-[13px] font-medium transition-colors',
+                'flex items-center gap-2 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors',
                 isCurrent
-                  ? 'cursor-default bg-accent/10 text-accent-hover'
-                  : 'cursor-pointer text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+                  ? 'cursor-default bg-bg-secondary font-semibold text-text-primary shadow-[0_1px_3px_rgb(46_52_64_/_0.1)]'
+                  : 'cursor-pointer text-text-secondary hover:bg-bg-active hover:text-text-primary',
               )}
             >
-              <span
-                className="h-[7px] w-[7px] shrink-0 rounded-full"
-                style={{ background: accent, boxShadow: isCurrent ? '0 0 8px currentColor' : undefined }}
-              />
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: accent }} />
               {label}
             </button>
           );
@@ -115,7 +113,7 @@ export function Header() {
         {user && (
           <>
             <NotificationBell />
-            <div className="flex items-center gap-[9px] rounded-[22px] bg-bg-hover py-[5px] pl-[5px] pr-1.5 text-[12.5px] md:pr-3">
+            <div className="flex items-center gap-[9px] rounded-lg bg-bg-hover py-[5px] pl-[5px] pr-1.5 text-[12.5px] md:pr-3">
               <UserAvatar avatar={user.avatar} username={user.username} size={28} />
               <span className="hidden font-medium text-text-primary md:inline">{cleanName(user)}</span>
               <span className="hidden border-l border-border-light pl-2 font-mono text-[10px] uppercase tracking-wider text-accent md:inline">

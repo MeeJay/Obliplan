@@ -11,8 +11,11 @@ export function isValidTheme(value: string | null | undefined): value is AppThem
   return value != null && (VALID_THEMES as string[]).includes(value);
 }
 
-function applyTheme(theme: AppTheme): void {
-  document.documentElement.setAttribute('data-theme', theme);
+/** Apply a theme id, falling back to Obli Operator on any unknown value (so a future
+ *  theme Obligate might add can never brick the app with an unstyled data-theme). */
+function applyTheme(theme: string): void {
+  const safe: AppTheme = isValidTheme(theme) ? theme : 'obli-operator';
+  document.documentElement.setAttribute('data-theme', safe);
 }
 
 const initialTheme = ((): AppTheme => {
