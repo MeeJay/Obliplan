@@ -6,6 +6,7 @@ export const createHourTypeSchema = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Couleur hex #rrggbb attendue').nullable().optional(),
   position: z.number().int().min(0).optional(),
   isActive: z.boolean().optional(),
+  bookable: z.boolean().optional(),
 });
 export const updateHourTypeSchema = createHourTypeSchema.partial();
 

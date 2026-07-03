@@ -14,9 +14,10 @@ interface Draft {
   code: string;
   color: string;
   isActive: boolean;
+  bookable: boolean;
 }
 
-const EMPTY: Draft = { libelle: '', code: '', color: '#7c6cff', isActive: true };
+const EMPTY: Draft = { libelle: '', code: '', color: '#7c6cff', isActive: true, bookable: false };
 
 export function HourTypesPage() {
   const can = useAuthStore((s) => s.can);
@@ -42,6 +43,7 @@ export function HourTypesPage() {
       code: t.code ?? '',
       color: t.color ?? '#7c6cff',
       isActive: t.isActive,
+      bookable: t.bookable,
     });
   }
 
@@ -52,6 +54,7 @@ export function HourTypesPage() {
       code: draft.code || null,
       color: draft.color,
       isActive: draft.isActive,
+      bookable: draft.bookable,
     };
     try {
       if (draft.id) await hourTypeApi.update(draft.id, payload);
@@ -90,6 +93,7 @@ export function HourTypesPage() {
               <tr>
                 <th className="px-4 py-2">Libellé</th>
                 <th className="px-4 py-2">Code</th>
+                <th className="px-4 py-2">Réservable</th>
                 <th className="px-4 py-2">Actif</th>
                 {canManage && <th className="px-4 py-2"></th>}
               </tr>
@@ -107,6 +111,15 @@ export function HourTypesPage() {
                     </span>
                   </td>
                   <td className="px-4 py-2 font-mono text-text-secondary">{t.code ?? '-'}</td>
+                  <td className="px-4 py-2">
+                    {t.bookable ? (
+                      <span className="rounded-full bg-status-maintenance/15 px-2 py-0.5 text-xs font-medium text-status-maintenance">
+                        RDV
+                      </span>
+                    ) : (
+                      <span className="text-text-muted">-</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2">{t.isActive ? 'Oui' : 'Non'}</td>
                   {canManage && (
                     <td className="px-4 py-2 text-right">
@@ -122,7 +135,7 @@ export function HourTypesPage() {
               ))}
               {types.length === 0 && (
                 <tr>
-                  <td className="px-4 py-6 text-center text-text-muted" colSpan={canManage ? 4 : 3}>
+                  <td className="px-4 py-6 text-center text-text-muted" colSpan={canManage ? 5 : 4}>
                     Aucun type d'heure défini.
                   </td>
                 </tr>
@@ -173,6 +186,20 @@ export function HourTypesPage() {
                   onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })}
                 />
                 Actif
+              </label>
+              <label className="flex items-start gap-2 text-sm text-text-secondary">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={draft.bookable}
+                  onChange={(e) => setDraft({ ...draft, bookable: e.target.checked })}
+                />
+                <span>
+                  Réservable pour rendez-vous
+                  <span className="block text-xs text-text-muted">
+                    Le temps travaillé sous ce type est proposé comme créneau libre sur la page de réservation publique.
+                  </span>
+                </span>
               </label>
             </div>
             <div className="mt-5 flex justify-end gap-2">

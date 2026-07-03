@@ -4,6 +4,7 @@ import {
   Home,
   CalendarDays,
   CalendarRange,
+  CalendarClock,
   BarChart3,
   Plane,
   Clock4,
@@ -69,6 +70,8 @@ const MAIN_NAV: NavItem[] = [
   { label: 'Mes projets', path: '/projets', icon: <LayoutGrid size={16} />, module: 'projets' },
   { label: 'Mes tâches', path: '/taches', icon: <CheckSquare size={16} />, module: 'taches' },
   { label: 'Suivi du temps', path: '/temps', icon: <Timer size={16} />, module: 'temps' },
+  // Personal, self-service: my public meeting-booking page + incoming appointments.
+  { label: 'Rendez-vous', path: '/rendez-vous', icon: <CalendarClock size={16} /> },
   {
     label: 'Ma récup',
     path: '/ma-recup',

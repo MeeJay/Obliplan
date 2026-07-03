@@ -9,6 +9,7 @@ interface HourTypeRow {
   color: string | null;
   position: number;
   is_active: boolean;
+  bookable: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -22,6 +23,7 @@ export function rowToHourType(r: HourTypeRow): HourType {
     color: r.color,
     position: r.position,
     isActive: r.is_active,
+    bookable: r.bookable,
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),
   };
@@ -33,6 +35,7 @@ export interface HourTypeInput {
   color?: string | null;
   position?: number;
   isActive?: boolean;
+  bookable?: boolean;
 }
 
 export const hourTypeService = {
@@ -57,6 +60,7 @@ export const hourTypeService = {
         color: data.color ?? null,
         position: data.position ?? 0,
         is_active: data.isActive ?? true,
+        bookable: data.bookable ?? false,
       })
       .returning('*');
     return rowToHourType(row);
@@ -69,6 +73,7 @@ export const hourTypeService = {
     if (data.color !== undefined) patch.color = data.color;
     if (data.position !== undefined) patch.position = data.position;
     if (data.isActive !== undefined) patch.is_active = data.isActive;
+    if (data.bookable !== undefined) patch.bookable = data.bookable;
     const [row] = await db<HourTypeRow>('hour_types')
       .where({ id, tenant_id: tenantId })
       .update(patch)

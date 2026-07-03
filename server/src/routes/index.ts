@@ -33,6 +33,8 @@ import gdprRoutes from './gdpr.routes';
 import auditRoutes from './audit.routes';
 import pushRoutes from './push.routes';
 import { icsPublicRoutes, icsAuthedRoutes } from './ics.routes';
+import bookingRoutes from './booking.routes';
+import bookingPublicRoutes from './bookingPublic.routes';
 
 const router = Router();
 
@@ -42,6 +44,7 @@ router.use('/auth', obligateApiRoutes); // app-info / dashboard-stats / sso-user
 router.use('/admin/config', appConfigRoutes); // About / Obligate gateway / SMTP (admin)
 router.use('/permission-sets', permissionSetsRoutes); // permission matrix (global)
 router.use('/ics', icsPublicRoutes); // PUBLIC calendar feed - token-gated, NO auth/tenant
+router.use('/public/booking', bookingPublicRoutes); // PUBLIC meeting booking - token-gated, NO auth/tenant
 
 // ── Tenant management (requireAuth, NOT requireTenant) ───────────────────────
 router.use('/tenants', tenantRoutes);
@@ -79,6 +82,7 @@ tenantRouter.use('/gdpr', gdprRoutes); // RGPD: self data export + admin export/
 tenantRouter.use('/audit', auditRoutes); // Tamper-evident audit trail (users:manage)
 tenantRouter.use('/push', pushRoutes); // Web Push: manage my own device subscriptions
 tenantRouter.use('/ics', icsAuthedRoutes); // authed: manage my own subscribe token
+tenantRouter.use('/booking', bookingRoutes); // authed: manage my own public booking page + inbox
 
 router.use('/', tenantRouter);
 

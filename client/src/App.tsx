@@ -31,6 +31,8 @@ import { RecupSelfPage } from './pages/RecupSelfPage';
 import { OvertimePage } from './pages/OvertimePage';
 import { TeamsPage } from './pages/TeamsPage';
 import { AuditPage } from './pages/AuditPage';
+import { BookingSettingsPage } from './pages/BookingSettingsPage';
+import { PublicBookingPage } from './pages/PublicBookingPage';
 
 /** Gate a nested route on a tenant capability (platform admins always pass). */
 function CapabilityRoute({ capability }: { capability: string }) {
@@ -60,6 +62,8 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {/* PUBLIC meeting booking - no auth, standalone (token-gated). */}
+        <Route path="/rdv/:token" element={<PublicBookingPage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
@@ -72,6 +76,7 @@ export default function App() {
             <Route path="/projets" element={<ProjectsPage />} />
             <Route path="/taches" element={<TodoPage />} />
             <Route path="/temps" element={<TimeTrackingPage />} />
+            <Route path="/rendez-vous" element={<BookingSettingsPage />} />
             <Route element={<RecupSelfRoute />}>
               <Route path="/ma-recup" element={<RecupSelfPage />} />
             </Route>

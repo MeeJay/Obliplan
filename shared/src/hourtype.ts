@@ -12,6 +12,9 @@ export interface HourType {
   color: string | null;
   position: number;
   isActive: boolean;
+  /** When true, time worked under this hour-type is offered as free slots on the public
+   *  meeting-booking page (e.g. "Back" bookable, "Front"/"Projet X" not). */
+  bookable: boolean;
   createdAt: string;
   updatedAt: string;
 }

@@ -17,3 +17,4 @@ export * from './holiday';
 export * from './reporting';
 export * from './planningImport';
 export * from './planningViews';
+export * from './booking';

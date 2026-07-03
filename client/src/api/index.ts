@@ -63,7 +63,14 @@ import type {
   PlanningTeamRef,
   PlanningView,
   PlanningViewInput,
+  BookingPageConfig,
+  BookingPageInput,
+  Appointment,
+  PublicBookingPage,
+  CreateAppointmentInput,
+  AppointmentBooked,
 } from '@obliplan/shared';
+import axios from 'axios';
 
 async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
   const res = await apiClient.get<ApiResponse<T>>(url, { params });
@@ -557,6 +564,29 @@ export const auditApi = {
   list: (opts?: { action?: string; limit?: number; offset?: number }) => get<AuditEntry[]>('/audit', opts),
   /** Recompute the per-tenant hash chain and pinpoint the first break, if any. */
   verify: () => get<AuditVerifyResult>('/audit/verify'),
+};
+
+// ── Meeting booking - host-side (authed): manage my own public page + inbox ────
+export const bookingApi = {
+  me: () => get<BookingPageConfig>('/booking/me'),
+  update: (data: BookingPageInput) => put<BookingPageConfig>('/booking/me', data),
+  regenerate: () => post<BookingPageConfig>('/booking/me/regenerate'),
+  appointments: (includePast = false) => get<Appointment[]>('/booking/appointments', { includePast }),
+  confirm: (id: number) => post<Appointment>(`/booking/appointments/${id}/confirm`),
+  cancel: (id: number) => post<Appointment>(`/booking/appointments/${id}/cancel`),
+};
+
+// ── Meeting booking - PUBLIC (no auth). A bare axios client so the 401→/login
+// interceptor and the X-Auth-Token header never apply to unauthenticated visitors.
+const publicClient = axios.create({ baseURL: '/api/public', headers: { 'Content-Type': 'application/json' } });
+export const publicBookingApi = {
+  page: (token: string, range?: { from?: string; to?: string }) =>
+    publicClient
+      .get<{ data: PublicBookingPage }>(`/booking/${token}`, { params: range })
+      .then((r) => r.data.data),
+  book: (token: string, input: CreateAppointmentInput) =>
+    publicClient.post<{ data: AppointmentBooked }>(`/booking/${token}`, input).then((r) => r.data.data),
+  cancel: (cancelToken: string) => publicClient.post(`/booking/appointment/${cancelToken}/cancel`).then(() => undefined),
 };
 
 /** Trigger a client-side download of `data` as a pretty-printed JSON file. */
