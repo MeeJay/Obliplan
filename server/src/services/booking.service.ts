@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 import { addDays, todayIso, hmToMin } from '../utils/date';
 import { notify, emailFor, managerIdOf } from './notify';
 import { mailerService, brandedEmail } from './mailer.service';
+import { icsService } from './ics.service';
 import type {
   BookingPageConfig,
   BookingPageInput,
@@ -189,20 +190,31 @@ async function computeAvailability(page: BookingPageRow, fromIso: string, toIso:
   const buffer = Math.max(0, page.buffer_minutes);
   const earliest = earliestBookable(page.min_notice_hours);
 
-  // Which hour-types count as bookable for this tenant.
-  const bookableTypes = (await db('hour_types')
+  // Which hour-types count as bookable for this tenant, and which of those exclude
+  // project-attached shifts (a project block = busy, not "libre RDV").
+  const bookableTypes = await db('hour_types')
     .where({ tenant_id: page.tenant_id, bookable: true, is_active: true })
-    .select<{ id: number }[]>('id')).map((r) => r.id);
+    .select<{ id: number; booking_exclude_projects: boolean }[]>('id', 'booking_exclude_projects');
   if (bookableTypes.length === 0) return [];
+  const bookableTypeIds = bookableTypes.map((t) => t.id);
+  const excludeProjectTypeIds = new Set(bookableTypes.filter((t) => t.booking_exclude_projects).map((t) => t.id));
 
   const shifts = (await db('shifts')
     .where({ tenant_id: page.tenant_id, user_id: page.user_id, statut: 'valide' })
-    .whereIn('hour_type_id', bookableTypes)
+    .whereIn('hour_type_id', bookableTypeIds)
     .whereNotNull('heure_debut')
     .whereNotNull('heure_fin')
     .andWhere('date', '>=', from)
     .andWhere('date', '<=', to)
-    .select<{ date: Date | string; heure_debut: string; heure_fin: string }[]>('date', 'heure_debut', 'heure_fin'));
+    .select<{ date: Date | string; heure_debut: string; heure_fin: string; hour_type_id: number | null; board_id: number | null }[]>(
+      'date',
+      'heure_debut',
+      'heure_fin',
+      'hour_type_id',
+      'board_id',
+    ))
+    // A project-attached shift is not bookable when its type excludes projects.
+    .filter((s) => !(s.board_id != null && s.hour_type_id != null && excludeProjectTypeIds.has(s.hour_type_id)));
 
   const appts = (await db('appointments')
     .where({ tenant_id: page.tenant_id, user_id: page.user_id })
@@ -351,6 +363,18 @@ export const bookingService = {
     //  - 'self'    → the host validates their own reservation.
     //  - 'manager' → the host's manager validates (falls back to the host if no manager set).
     void notifyOnBooking(page, row.id, input, status);
+    // Auto-confirmed → the external is already committed: send them the confirmation + .ics now.
+    if (status === 'confirmed') {
+      void emailExternal(page.tenant_id, page.user_id, {
+        id: row.id,
+        date: input.date,
+        heure_debut: input.start,
+        heure_fin: input.end,
+        external_name: input.name.trim(),
+        external_email: input.email.trim(),
+        subject: input.subject?.trim() || null,
+      }, 'confirmed');
+    }
 
     return { status, date: input.date, start: input.start, end: input.end, cancelToken };
   },
@@ -549,26 +573,73 @@ async function notifyHostCancelled(
   }
 }
 
-/** E-mail the external visitor when the host confirms or cancels their appointment. */
+/** The minimal appointment shape the external e-mail needs (a subset of AppointmentRow). */
+interface ExternalApptInfo {
+  id: number;
+  date: Date | string;
+  heure_debut: string;
+  heure_fin: string;
+  external_name: string;
+  external_email: string;
+  subject: string | null;
+}
+
+/**
+ * E-mail the external visitor when their appointment is confirmed or cancelled, with an
+ * .ics invite attached (METHOD:REQUEST on confirm, CANCEL on cancel) so their calendar can
+ * add/remove the meeting in one click.
+ */
 async function emailExternal(
   tenantId: number,
   hostId: number,
-  appt: AppointmentRow,
+  appt: ExternalApptInfo,
   status: 'confirmed' | 'cancelled',
 ): Promise<void> {
   try {
     if (!(await mailerService.isConfigured())) return;
-    const host = await db('users').where({ id: hostId }).first<{ display_name: string | null; username: string }>('display_name', 'username');
+    const host = await db('users')
+      .where({ id: hostId })
+      .first<{ display_name: string | null; username: string; email: string | null }>('display_name', 'username', 'email');
     const hostName = host?.display_name?.trim() || host?.username || 'votre interlocuteur';
     const date = isoDate(appt.date);
-    const when = `${ddmm(date)} de ${appt.heure_debut.slice(0, 5)} à ${appt.heure_fin.slice(0, 5)}`;
+    const start = appt.heure_debut.slice(0, 5);
+    const end = appt.heure_fin.slice(0, 5);
+    const when = `${ddmm(date)} de ${start} à ${end}`;
     const subject = status === 'confirmed' ? 'Votre rendez-vous est confirmé' : 'Votre rendez-vous a été annulé';
     const line =
       status === 'confirmed'
         ? `Votre rendez-vous avec ${hostName} le ${when} est confirmé.`
         : `Votre rendez-vous avec ${hostName} le ${when} a été annulé.`;
     const html = brandedEmail({ title: subject, bodyHtml: `<p style="margin:0;">${line}</p>` });
-    await mailerService.sendMail({ to: appt.external_email, subject, html }, { tenantId, template: `booking.${status}` });
+
+    const cancelled = status === 'cancelled';
+    const ics = icsService.appointmentIcs({
+      id: appt.id,
+      date,
+      start,
+      end,
+      hostName,
+      hostEmail: host?.email ?? null,
+      attendeeName: appt.external_name,
+      attendeeEmail: appt.external_email,
+      subject: appt.subject,
+      cancelled,
+    });
+    await mailerService.sendMail(
+      {
+        to: appt.external_email,
+        subject,
+        html,
+        attachments: [
+          {
+            filename: 'rendez-vous.ics',
+            content: ics,
+            contentType: `text/calendar; charset=utf-8; method=${cancelled ? 'CANCEL' : 'REQUEST'}`,
+          },
+        ],
+      },
+      { tenantId, template: `booking.${status}` },
+    );
   } catch (err) {
     logger.warn({ err }, 'booking: external e-mail failed (non-fatal)');
   }

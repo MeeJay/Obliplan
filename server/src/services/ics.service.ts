@@ -52,6 +52,17 @@ interface FeedLeaveRow {
   leave_type_libelle: string | null;
 }
 
+interface FeedApptRow {
+  id: number;
+  date: Date | string;
+  heure_debut: string;
+  heure_fin: string;
+  status: string;
+  external_name: string;
+  external_email: string;
+  subject: string | null;
+}
+
 const isoDate = (v: Date | string): string => (typeof v === 'string' ? v.slice(0, 10) : toIso(v));
 
 function newToken(): string {
@@ -182,6 +193,25 @@ export const icsService = {
         'leave_types.libelle as leave_type_libelle',
       )) as FeedLeaveRow[];
 
+    // Booked meeting reservations on this user's calendar, with the external booker's
+    // name/e-mail. Confirmed → CONFIRMED VEVENT, pending → TENTATIVE.
+    const appts = (await db('appointments')
+      .where({ tenant_id: user.tenant_id, user_id: user.id })
+      .whereIn('status', ['confirmed', 'pending'])
+      .andWhere('date', '>=', from)
+      .andWhere('date', '<', toExclusive)
+      .orderBy(['date', 'heure_debut'])
+      .select(
+        'id',
+        'date',
+        'heure_debut',
+        'heure_fin',
+        'status',
+        'external_name',
+        'external_email',
+        'subject',
+      )) as FeedApptRow[];
+
     const dtstamp = stampUtc(new Date());
     const lines: string[] = [
       'BEGIN:VCALENDAR',
@@ -229,10 +259,30 @@ export const icsService = {
       lines.push('END:VEVENT');
     }
 
+    for (const a of appts) {
+      const date = isoDate(a.date);
+      const debut = a.heure_debut.slice(0, 5);
+      const fin = a.heure_fin.slice(0, 5);
+      const endDate = hmToMin(fin) <= hmToMin(debut) ? addDays(date, 1) : date;
+      const descParts = [`Réservé par ${a.external_name} (${a.external_email})`];
+      if (a.subject) descParts.push(a.subject);
+      lines.push('BEGIN:VEVENT');
+      lines.push(`UID:appt-${a.id}@obliplan`);
+      lines.push(`DTSTAMP:${dtstamp}`);
+      lines.push(`DTSTART:${localDateTime(date, debut)}`);
+      lines.push(`DTEND:${localDateTime(endDate, fin)}`);
+      lines.push(`SUMMARY:${escapeText(`Rendez-vous : ${a.external_name}`)}`);
+      lines.push(`DESCRIPTION:${escapeText(descParts.join(' - '))}`);
+      // The external booker as a named attendee (their e-mail lands in the calendar event).
+      lines.push(`ATTENDEE;CN=${escapeText(a.external_name)};ROLE=REQ-PARTICIPANT:mailto:${a.external_email}`);
+      lines.push(`STATUS:${a.status === 'confirmed' ? 'CONFIRMED' : 'TENTATIVE'}`);
+      lines.push('END:VEVENT');
+    }
+
     // RFC 5545 requires at least one component. A brand-new subscriber with no
-    // validated shifts and no approved leave in the window gets a transparent
-    // (non-busy) anchor so calendar clients accept the feed instead of erroring.
-    if (shifts.length === 0 && leaves.length === 0) {
+    // validated shifts, no approved leave and no appointments in the window gets a
+    // transparent (non-busy) anchor so calendar clients accept the feed.
+    if (shifts.length === 0 && leaves.length === 0 && appts.length === 0) {
       lines.push('BEGIN:VEVENT');
       lines.push(`UID:placeholder-${user.id}@obliplan`);
       lines.push(`DTSTAMP:${dtstamp}`);
@@ -244,6 +294,48 @@ export const icsService = {
       lines.push('END:VEVENT');
     }
 
+    lines.push('END:VCALENDAR');
+    return lines.map(fold).join('\r\n') + '\r\n';
+  },
+
+  /**
+   * A standalone iCalendar invite for ONE appointment, to attach to the confirmation
+   * (METHOD:REQUEST) or cancellation (METHOD:CANCEL) e-mail sent to the external booker,
+   * so their calendar can add/remove the meeting in one click.
+   */
+  appointmentIcs(opts: {
+    id: number;
+    date: string;
+    start: string;
+    end: string;
+    hostName: string;
+    hostEmail?: string | null;
+    attendeeName: string;
+    attendeeEmail: string;
+    subject?: string | null;
+    cancelled?: boolean;
+  }): string {
+    const endDate = hmToMin(opts.end) <= hmToMin(opts.start) ? addDays(opts.date, 1) : opts.date;
+    const dtstamp = stampUtc(new Date());
+    const lines: string[] = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Obliplan//FR',
+      'CALSCALE:GREGORIAN',
+      `METHOD:${opts.cancelled ? 'CANCEL' : 'REQUEST'}`,
+      'BEGIN:VEVENT',
+      `UID:appt-${opts.id}@obliplan`,
+      `DTSTAMP:${dtstamp}`,
+      `DTSTART:${localDateTime(opts.date, opts.start)}`,
+      `DTEND:${localDateTime(endDate, opts.end)}`,
+      `SUMMARY:${escapeText(`Rendez-vous avec ${opts.hostName}`)}`,
+    ];
+    if (opts.subject) lines.push(`DESCRIPTION:${escapeText(opts.subject)}`);
+    if (opts.hostEmail) lines.push(`ORGANIZER;CN=${escapeText(opts.hostName)}:mailto:${opts.hostEmail}`);
+    lines.push(`ATTENDEE;CN=${escapeText(opts.attendeeName)};ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:${opts.attendeeEmail}`);
+    lines.push(`STATUS:${opts.cancelled ? 'CANCELLED' : 'CONFIRMED'}`);
+    lines.push(`SEQUENCE:${opts.cancelled ? 1 : 0}`);
+    lines.push('END:VEVENT');
     lines.push('END:VCALENDAR');
     return lines.map(fold).join('\r\n') + '\r\n';
   },

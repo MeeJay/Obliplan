@@ -15,9 +15,17 @@ interface Draft {
   color: string;
   isActive: boolean;
   bookable: boolean;
+  bookingExcludeProjects: boolean;
 }
 
-const EMPTY: Draft = { libelle: '', code: '', color: '#7c6cff', isActive: true, bookable: false };
+const EMPTY: Draft = {
+  libelle: '',
+  code: '',
+  color: '#7c6cff',
+  isActive: true,
+  bookable: false,
+  bookingExcludeProjects: true,
+};
 
 export function HourTypesPage() {
   const can = useAuthStore((s) => s.can);
@@ -44,6 +52,7 @@ export function HourTypesPage() {
       color: t.color ?? '#7c6cff',
       isActive: t.isActive,
       bookable: t.bookable,
+      bookingExcludeProjects: t.bookingExcludeProjects,
     });
   }
 
@@ -55,6 +64,7 @@ export function HourTypesPage() {
       color: draft.color,
       isActive: draft.isActive,
       bookable: draft.bookable,
+      bookingExcludeProjects: draft.bookingExcludeProjects,
     };
     try {
       if (draft.id) await hourTypeApi.update(draft.id, payload);
@@ -201,6 +211,22 @@ export function HourTypesPage() {
                   </span>
                 </span>
               </label>
+              {draft.bookable && (
+                <label className="flex items-start gap-2 pl-6 text-sm text-text-secondary">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={draft.bookingExcludeProjects}
+                    onChange={(e) => setDraft({ ...draft, bookingExcludeProjects: e.target.checked })}
+                  />
+                  <span>
+                    Sauf si un projet est rattaché
+                    <span className="block text-xs text-text-muted">
+                      Un créneau de ce type portant un projet n'est pas proposé à la réservation.
+                    </span>
+                  </span>
+                </label>
+              )}
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setDraft(null)}>

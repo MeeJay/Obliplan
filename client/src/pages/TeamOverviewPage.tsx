@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { CalendarRange, Eye } from 'lucide-react';
+import { CalendarRange, Eye, CalendarClock } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { Shift, TeamOverviewDTO } from '@obliplan/shared';
+import type { Shift, TeamOverviewDTO, TeamOverviewMember } from '@obliplan/shared';
 import { planningApi, hourTypeApi } from '../api';
 import { addDaysIso, dayLabel, mondayOfIso, todayIso } from '../utils/format';
 import { WeekNav } from '../components/planning/WeekNav';
 import { SHIFT_META, TIMED_SHIFT_TYPES, type HourTypeLookup } from '../components/planning/shiftMeta';
+import { shadeForProject } from '../components/planning/colorShade';
 import { HolidayPill } from '../components/planning/HolidayPill';
 import { Card } from '../components/common/Card';
 import { Spinner } from '../components/common/Spinner';
@@ -140,11 +141,15 @@ export function TeamOverviewPage() {
                   </th>
                   {days.map((iso) => {
                     const cellShifts = m.shifts.filter((s) => s.date === iso);
+                    const cellAppts = (m.appointments ?? []).filter((a) => a.date === iso);
                     return (
                       <td key={iso} className="h-[92px] border-b border-r border-border align-top">
                         <div className="flex h-full flex-col gap-1 p-1">
                           {cellShifts.map((s) => (
                             <ReadOnlyShiftChip key={s.id} shift={s} hourTypes={hourTypes} />
+                          ))}
+                          {cellAppts.map((a) => (
+                            <ReadOnlyApptChip key={`appt-${a.id}`} appt={a} />
                           ))}
                         </div>
                       </td>
@@ -160,13 +165,35 @@ export function TeamOverviewPage() {
   );
 }
 
+/** Anonymised busy "Rendez-vous" chip for the overview: shows only the time band, NEVER the
+ *  external booker's name/e-mail (this view is readable by every employee). */
+function ReadOnlyApptChip({ appt }: { appt: TeamOverviewMember['appointments'][number] }) {
+  return (
+    <div
+      title={`Rendez-vous · ${appt.start}-${appt.end}${appt.status === 'pending' ? ' · à confirmer' : ''}`}
+      className={cn(
+        'rounded border border-accent/50 bg-accent/10 px-1.5 py-0.5 text-left text-[11px] leading-tight text-accent-hover',
+        appt.status === 'pending' && 'border-dashed opacity-80',
+      )}
+    >
+      <div className="flex items-center gap-1">
+        <CalendarClock size={10} className="shrink-0" />
+        <span className="truncate font-medium">Rendez-vous</span>
+      </div>
+      <span className="mt-0.5 block font-mono text-[10px] opacity-80">
+        {appt.start}–{appt.end}
+      </span>
+    </div>
+  );
+}
+
 /** A non-interactive shift chip - reuses SHIFT_META + hour-type colours like WeekTable/RotaGrid, but no affordances. */
 function ReadOnlyShiftChip({ shift, hourTypes }: { shift: Shift; hourTypes: HourTypeLookup }) {
   const meta = SHIFT_META[shift.type];
   const timed = TIMED_SHIFT_TYPES.includes(shift.type);
   const time = shift.heureDebut && shift.heureFin ? `${shift.heureDebut}–${shift.heureFin}` : null;
   const ht = shift.hourTypeId != null ? hourTypes[shift.hourTypeId] : undefined;
-  const colored = ht?.color ?? null;
+  const colored = shadeForProject(ht?.color, shift.boardId);
   return (
     <div
       title={[meta.label, time, ht?.libelle].filter(Boolean).join(' · ')}

@@ -92,13 +92,25 @@ function IcsSubscriptionCard() {
               />
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={copy}>
-                Copier
+              {/* webcal:// = same URL, scheme swapped. Clicking it hands the feed straight to the
+                  OS calendar app (Outlook / Apple Calendar), which won't subscribe from an https link. */}
+              <a
+                href={url.replace(/^https?:\/\//i, 'webcal://')}
+                className="inline-flex items-center justify-center rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+              >
+                S'abonner (Outlook / Apple)
+              </a>
+              <Button size="sm" variant="secondary" onClick={copy}>
+                Copier le lien
               </Button>
               <Button size="sm" variant="secondary" onClick={() => setConfirmOpen(true)}>
                 Régénérer le lien
               </Button>
             </div>
+            <p className="text-xs text-text-muted">
+              Outlook et Apple Calendar : cliquez sur « S'abonner ». Google Agenda : « Autres agendas » puis « À partir de
+              l'URL » et collez le lien copié. Seuls les créneaux validés apparaissent (les brouillons non).
+            </p>
           </>
         ) : (
           <p className="text-sm text-text-muted">Lien indisponible pour le moment.</p>

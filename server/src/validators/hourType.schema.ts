@@ -7,6 +7,7 @@ export const createHourTypeSchema = z.object({
   position: z.number().int().min(0).optional(),
   isActive: z.boolean().optional(),
   bookable: z.boolean().optional(),
+  bookingExcludeProjects: z.boolean().optional(),
 });
 export const updateHourTypeSchema = createHourTypeSchema.partial();
 

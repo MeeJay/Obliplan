@@ -66,6 +66,7 @@ import type {
   BookingPageConfig,
   BookingPageInput,
   Appointment,
+  PlanningAppointment,
   PublicBookingPage,
   CreateAppointmentInput,
   AppointmentBooked,
@@ -119,6 +120,8 @@ export interface UserWeekDTO {
   hourTypes: { id: number; libelle: string; color: string | null }[];
   /** ISO dates in [monday, monday+7) that are public holidays (sorted). Purely a visual day-marker, non-blocking. */
   holidays: string[];
+  /** Booked meeting reservations on this employee's calendar this week (name + e-mail), read-only on the planning. */
+  appointments: PlanningAppointment[];
   /** Axis-C user_teams ids this employee belongs to (tenant-scoped). Empty = no team. Powers the per-team visibility filter. */
   teamIds: number[];
 }

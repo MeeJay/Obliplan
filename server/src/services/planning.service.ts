@@ -1,4 +1,12 @@
-import type { Shift, User, WeeklyCounter, ComplianceFlag, TeamOverviewDTO, TeamOverviewMember } from '@obliplan/shared';
+import type {
+  Shift,
+  User,
+  WeeklyCounter,
+  ComplianceFlag,
+  TeamOverviewDTO,
+  TeamOverviewMember,
+  PlanningAppointment,
+} from '@obliplan/shared';
 import { db } from '../db';
 import { contratService } from './contrat.service';
 import { shiftService, rowToShift } from './shift.service';
@@ -37,6 +45,11 @@ export interface UserWeek {
    * visual day-marker: shifts still render on a jour férié and remain addable/editable.
    */
   holidays: string[];
+  /**
+   * Confirmed/pending meeting reservations landing on THIS employee's calendar this week,
+   * carrying the external booker's name + e-mail. Surfaced read-only on the planning.
+   */
+  appointments: PlanningAppointment[];
   /**
    * The Axis-C `user_teams` ids this employee belongs to (tenant-scoped), so the client can
    * group/filter rows by team. `getUserWeek` returns `[]`; the team grids (`getTeamWeek`) fill
@@ -116,6 +129,37 @@ export const planningService = {
           .select<{ id: number; libelle: string; color: string | null }[]>('id', 'libelle', 'color')
       : [];
 
+    // Booked meeting reservations on this employee's calendar this week (confirmed +
+    // pending), with the external booker's name/e-mail, surfaced read-only on the planning.
+    const apptRows = await db('appointments')
+      .where({ tenant_id: tenantId, user_id: user.id })
+      .whereIn('status', ['confirmed', 'pending'])
+      .andWhere('date', '>=', monday)
+      .andWhere('date', '<', weekEndExclusive)
+      .orderBy(['date', 'heure_debut'])
+      .select<
+        {
+          id: number;
+          date: Date | string;
+          heure_debut: string;
+          heure_fin: string;
+          status: PlanningAppointment['status'];
+          external_name: string;
+          external_email: string;
+          subject: string | null;
+        }[]
+      >('id', 'date', 'heure_debut', 'heure_fin', 'status', 'external_name', 'external_email', 'subject');
+    const appointments: PlanningAppointment[] = apptRows.map((a) => ({
+      id: a.id,
+      date: typeof a.date === 'string' ? a.date.slice(0, 10) : a.date.toISOString().slice(0, 10),
+      start: a.heure_debut.slice(0, 5),
+      end: a.heure_fin.slice(0, 5),
+      status: a.status,
+      name: a.external_name,
+      email: a.external_email,
+      subject: a.subject,
+    }));
+
     return {
       user,
       shifts,
@@ -125,6 +169,7 @@ export const planningService = {
       boards,
       hourTypes,
       holidays: [...holidays].sort(),
+      appointments,
       teamIds: [],
     };
   },
@@ -354,6 +399,34 @@ export const planningService = {
       byUser.set(s.userId, list);
     }
 
+    // Anonymised booked reservations per member (confirmed + pending) - the overview shows
+    // busy "Rendez-vous" blocks WITHOUT any external name/e-mail (privacy: this view is
+    // readable by every employee via planning:view_team).
+    const apptRows = ids.length
+      ? await db('appointments')
+          .whereIn('user_id', ids)
+          .where('tenant_id', tenantId)
+          .whereIn('status', ['confirmed', 'pending'])
+          .andWhere('date', '>=', monday)
+          .andWhere('date', '<', end)
+          .orderBy(['user_id', 'date', 'heure_debut'])
+          .select<
+            { id: number; user_id: number; date: Date | string; heure_debut: string; heure_fin: string; status: 'pending' | 'confirmed' }[]
+          >('id', 'user_id', 'date', 'heure_debut', 'heure_fin', 'status')
+      : [];
+    const apptsByUser = new Map<number, TeamOverviewMember['appointments']>();
+    for (const a of apptRows) {
+      const list = apptsByUser.get(a.user_id) ?? [];
+      list.push({
+        id: a.id,
+        date: typeof a.date === 'string' ? a.date.slice(0, 10) : a.date.toISOString().slice(0, 10),
+        start: a.heure_debut.slice(0, 5),
+        end: a.heure_fin.slice(0, 5),
+        status: a.status,
+      });
+      apptsByUser.set(a.user_id, list);
+    }
+
     // Week-level public holidays (tenant-wide, not per-member): a purely visual day-marker
     // so the overview can flag jours fériés without blocking any shift.
     const holidays = await holidayService.getSet(tenantId, monday, end);
@@ -365,6 +438,7 @@ export const planningService = {
         displayName: u.displayName,
         username: u.username,
         shifts: byUser.get(u.id) ?? [],
+        appointments: apptsByUser.get(u.id) ?? [],
         teamIds: teamMap.get(u.id) ?? [],
       }))
       .sort((a, b) => (a.displayName ?? a.username).localeCompare(b.displayName ?? b.username));

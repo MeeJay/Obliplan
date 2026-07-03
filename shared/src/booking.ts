@@ -103,6 +103,21 @@ export interface AppointmentBooked {
   cancelToken: string;
 }
 
+/** A booked appointment as surfaced ON a planning view (the host's own week, the team
+ *  grid, the ICS feed): carries the external booker's name + e-mail. */
+export interface PlanningAppointment {
+  id: number;
+  date: string;
+  start: string;
+  end: string;
+  status: AppointmentStatus;
+  /** External booker name. */
+  name: string;
+  /** External booker e-mail. */
+  email: string;
+  subject: string | null;
+}
+
 /** An appointment as seen in an authenticated inbox (host OR manager-approver). */
 export interface Appointment {
   id: number;

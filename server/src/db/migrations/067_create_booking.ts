@@ -8,6 +8,9 @@ import type { Knex } from 'knex';
 export async function up(knex: Knex): Promise<void> {
   await knex.schema.alterTable('hour_types', (t) => {
     t.boolean('bookable').notNullable().defaultTo(false);
+    // When true (default), a shift of this type that has a PROJECT attached is NOT
+    // offered as a bookable slot (a project block = busy work, not "libre RDV").
+    t.boolean('booking_exclude_projects').notNullable().defaultTo(true);
   });
 
   await knex.schema.createTable('booking_pages', (t) => {
@@ -68,5 +71,6 @@ export async function down(knex: Knex): Promise<void> {
   await knex.schema.dropTableIfExists('booking_pages');
   await knex.schema.alterTable('hour_types', (t) => {
     t.dropColumn('bookable');
+    t.dropColumn('booking_exclude_projects');
   });
 }

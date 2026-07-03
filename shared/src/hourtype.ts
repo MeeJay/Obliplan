@@ -15,6 +15,9 @@ export interface HourType {
   /** When true, time worked under this hour-type is offered as free slots on the public
    *  meeting-booking page (e.g. "Back" bookable, "Front"/"Projet X" not). */
   bookable: boolean;
+  /** When true (and bookable), a shift of this type that has a PROJECT attached is
+   *  excluded from bookable slots (a project block = busy, not "libre RDV"). */
+  bookingExcludeProjects: boolean;
   createdAt: string;
   updatedAt: string;
 }

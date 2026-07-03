@@ -184,6 +184,7 @@ export function TeamPage() {
                 hourTypes={hourTypes}
                 boards={boards}
                 holidays={rows[0]?.holidays ?? []}
+                appointments={row.appointments}
                 onAdd={(date) => setEditor({ userId: row.user.id, date })}
                 onEdit={(shift) => setEditor({ userId: row.user.id, date: shift.date, shift })}
               />

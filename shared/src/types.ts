@@ -179,6 +179,9 @@ export interface TeamOverviewMember {
   username: string;
   /** Validated shifts only, note stripped to null. */
   shifts: Shift[];
+  /** Anonymised booked reservations (label "Rendez-vous" only, NO external name/e-mail):
+   *  the read-only overview shows busy RDV blocks without exposing any personal data. */
+  appointments: { id: number; date: string; start: string; end: string; status: 'pending' | 'confirmed' }[];
   /** Axis-C user_teams ids this member belongs to (tenant-scoped). [] = no team. */
   teamIds: number[];
 }

@@ -119,7 +119,14 @@ async function isConfigured(): Promise<boolean> {
 }
 
 async function sendMail(
-  msg: { to: string; subject: string; html: string; text?: string },
+  msg: {
+    to: string;
+    subject: string;
+    html: string;
+    text?: string;
+    /** Optional file attachments (e.g. an .ics invite). Passed straight to nodemailer. */
+    attachments?: { filename: string; content: string; contentType?: string }[];
+  },
   meta: MailMeta = {},
 ): Promise<{ ok: boolean; error?: string }> {
   let status: 'sent' | 'failed' = 'failed';
@@ -136,6 +143,7 @@ async function sendMail(
         subject: msg.subject,
         html: msg.html,
         text: msg.text ?? htmlToText(msg.html),
+        ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
       });
       status = 'sent';
     }

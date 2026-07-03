@@ -4,6 +4,7 @@ import type { Shift } from '@obliplan/shared';
 import type { UserWeekDTO } from '../../api';
 import { dayLabel, minToSignedHm } from '../../utils/format';
 import { SHIFT_META } from './shiftMeta';
+import { shadeForProject } from './colorShade';
 import { HolidayPill } from './HolidayPill';
 import { cn } from '../../utils/cn';
 import {
@@ -322,7 +323,8 @@ export function HourGrid({
     const meta = SHIFT_META[s.type];
     const ht = s.hourTypeId != null ? hourTypes[s.hourTypeId] : undefined;
     const label = ht?.libelle ?? meta.label;
-    const colored = ht?.color ?? null;
+    // Hour-type colour shaded per project so each project is a distinct tint of the same family.
+    const colored = shadeForProject(ht?.color, s.boardId);
     const timeText = `${s.heureDebut}–${s.heureFin}`;
     const isMoving = isDragShift && drag?.kind === 'move' && drag.moved;
     const selected = selectMode && !!selectedIds?.has(s.id);
@@ -437,6 +439,29 @@ export function HourGrid({
     );
   }
 
+  /** Read-only overlay: a booked meeting reservation (name + times). Pointer-transparent so
+   *  drawing/selecting the underlying track still works; sits above shift blocks. */
+  function renderAppointment(a: UserWeekDTO['appointments'][number]) {
+    const s = hhmmToMin(a.start);
+    const e = hhmmToMin(a.end);
+    if (e <= axisStart || s >= axisEnd) return null;
+    const vs = clamp(s, axisStart, axisEnd - SNAP_MIN);
+    const ve = clamp(e, vs + SNAP_MIN, axisEnd);
+    return (
+      <div
+        key={`appt-${a.id}`}
+        title={`Rendez-vous · ${a.name} (${a.email})${a.subject ? ` · ${a.subject}` : ''} · ${a.start}-${a.end}${a.status === 'pending' ? ' · à confirmer' : ''}`}
+        style={{ left: `${blockLeftPct(vs, axisStart, axisEnd)}%`, width: `${blockWidthPct(vs, ve, axisStart, axisEnd)}%` }}
+        className={cn(
+          'pointer-events-none absolute top-0.5 z-10 flex h-[17px] items-center gap-0.5 overflow-hidden rounded border border-accent bg-accent/25 px-1 text-[9px] font-semibold text-accent-hover',
+          a.status === 'pending' && 'border-dashed',
+        )}
+      >
+        <span className="truncate">RDV · {a.name}</span>
+      </div>
+    );
+  }
+
   function drawGhost(userId: number, date: string) {
     if (drag?.kind !== 'draw' || drag.date !== date) return null;
     if (!drawSpanUserIds(drag).includes(userId)) return null;
@@ -457,7 +482,7 @@ export function HourGrid({
     const startMin = drag.startMin;
     const endMin = startMin + drag.durMin;
     const ht = drag.shift.hourTypeId != null ? hourTypes[drag.shift.hourTypeId] : undefined;
-    const colored = ht?.color ?? null;
+    const colored = shadeForProject(ht?.color, drag.shift.boardId);
     const meta = SHIFT_META[drag.shift.type];
     const style: CSSProperties = {
       left: `${blockLeftPct(startMin, axisStart, axisEnd)}%`,
@@ -494,6 +519,7 @@ export function HourGrid({
     const here = row.shifts.filter((s) => s.date === date);
     const timed = here.filter((s) => s.heureDebut && s.heureFin);
     const fullday = here.filter((s) => !(s.heureDebut && s.heureFin));
+    const appts = (row.appointments ?? []).filter((a) => a.date === date);
     return (
       <div
         key={date}
@@ -514,6 +540,7 @@ export function HourGrid({
       >
         {fullday.map((s, i) => renderFullDay(s, i, fullday.length))}
         {timed.map((s) => renderTimed(s, drag != null && 'shift' in drag && drag.shift.id === s.id))}
+        {appts.map((a) => renderAppointment(a))}
         {drawGhost(userId, date)}
         {moveGhost(userId, date)}
         {editable && onCopyDay && (

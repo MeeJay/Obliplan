@@ -115,6 +115,7 @@ export function MyWeekPage() {
                   hourTypes={Object.fromEntries((w.hourTypes ?? []).map((h) => [h.id, { libelle: h.libelle, color: h.color }]))}
                   boards={Object.fromEntries((w.boards ?? []).map((b) => [b.id, { name: b.name }]))}
                   holidays={w.holidays}
+                  appointments={w.appointments}
                 />
               </CardBody>
             </Card>

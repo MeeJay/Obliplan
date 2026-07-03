@@ -1,8 +1,11 @@
-import { Plus } from 'lucide-react';
-import type { Shift } from '@obliplan/shared';
+import { useState } from 'react';
+import { Plus, CalendarClock } from 'lucide-react';
+import type { Shift, PlanningAppointment } from '@obliplan/shared';
 import { addDaysIso, dayLabel } from '../../utils/format';
 import { SHIFT_META, TIMED_SHIFT_TYPES, type HourTypeLookup, type BoardLookup } from './shiftMeta';
+import { shadeForProject } from './colorShade';
 import { HolidayPill } from './HolidayPill';
+import { AppointmentDetailModal } from './AppointmentDetailModal';
 import { cn } from '../../utils/cn';
 
 interface WeekTableProps {
@@ -16,13 +19,18 @@ interface WeekTableProps {
   boards?: BoardLookup;
   /** ISO dates (in this week) that are public holidays. Purely a visual day-marker, non-blocking. */
   holidays?: string[];
+  /** Booked meeting reservations this week (read-only), shown as RDV chips under their day. */
+  appointments?: PlanningAppointment[];
 }
 
-export function WeekTable({ monday, shifts, editable, onAdd, onEdit, hourTypes = {}, boards = {}, holidays = [] }: WeekTableProps) {
+export function WeekTable({ monday, shifts, editable, onAdd, onEdit, hourTypes = {}, boards = {}, holidays = [], appointments = [] }: WeekTableProps) {
   const days = Array.from({ length: 7 }, (_, i) => addDaysIso(monday, i));
   const byDay = (iso: string) => shifts.filter((s) => s.date === iso);
+  const apptsByDay = (iso: string) => appointments.filter((a) => a.date === iso);
+  const [apptDetail, setApptDetail] = useState<PlanningAppointment | null>(null);
 
   return (
+    <>
     <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
       {days.map((iso) => {
         const isHoliday = holidays.includes(iso);
@@ -50,7 +58,8 @@ export function WeekTable({ monday, shifts, editable, onAdd, onEdit, hourTypes =
               const time = s.heureDebut && s.heureFin ? `${s.heureDebut}–${s.heureFin}` : meta.label;
               const ht = s.hourTypeId != null ? hourTypes[s.hourTypeId] : undefined;
               const board = s.boardId != null ? boards[s.boardId] : undefined;
-              const colored = ht?.color ?? null;
+              // The hour-type colour, shaded per project so each project reads as a distinct tint.
+              const colored = shadeForProject(ht?.color, s.boardId);
               // Project is the headline (coloured by hour-type); the hour-type libellé becomes the subtitle.
               // No project -> hour-type libellé is the headline; no hour-type -> fall back to the shift meta label.
               const headline = board ? board.name : ht?.libelle ?? meta.label;
@@ -75,10 +84,33 @@ export function WeekTable({ monday, shifts, editable, onAdd, onEdit, hourTypes =
                 </button>
               );
             })}
+            {apptsByDay(iso).map((a) => (
+              <button
+                key={`appt-${a.id}`}
+                onClick={() => setApptDetail(a)}
+                title="Voir le détail du rendez-vous"
+                className={cn(
+                  'rounded border border-accent/50 bg-accent/10 px-1.5 py-1 text-left text-[11px] leading-tight text-accent-hover transition-opacity hover:opacity-80',
+                  a.status === 'pending' && 'border-dashed opacity-80',
+                )}
+              >
+                <div className="flex items-center gap-1 font-semibold">
+                  <CalendarClock size={11} className="shrink-0" />
+                  <span className="truncate">RDV · {a.name}</span>
+                </div>
+                <div className="truncate text-[10px] opacity-80">{a.email}</div>
+                <div className="font-mono">
+                  {a.start}–{a.end}
+                  {a.status === 'pending' && <span className="ml-1 italic">à confirmer</span>}
+                </div>
+              </button>
+            ))}
           </div>
         </div>
         );
       })}
     </div>
+    {apptDetail && <AppointmentDetailModal appt={apptDetail} onClose={() => setApptDetail(null)} />}
+    </>
   );
 }

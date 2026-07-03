@@ -1,9 +1,10 @@
-import { Plus, Copy, ClipboardPaste } from 'lucide-react';
+import { Plus, Copy, ClipboardPaste, CalendarClock } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { Shift } from '@obliplan/shared';
+import type { Shift, PlanningAppointment } from '@obliplan/shared';
 import type { UserWeekDTO } from '../../api';
 import { addDaysIso, dayLabel, minToSignedHm } from '../../utils/format';
 import { SHIFT_META, TIMED_SHIFT_TYPES, type HourTypeLookup, type BoardLookup } from './shiftMeta';
+import { shadeForProject } from './colorShade';
 import { HolidayPill } from './HolidayPill';
 import { cn } from '../../utils/cn';
 
@@ -129,6 +130,7 @@ export function RotaGrid({
                 {days.map((iso) => {
                   const key = cellKey(row.user.id, iso);
                   const cellShifts = row.shifts.filter((s) => s.date === iso);
+                  const cellAppts = (row.appointments ?? []).filter((a) => a.date === iso);
                   return (
                     <td
                       key={iso}
@@ -165,6 +167,9 @@ export function RotaGrid({
                             onDragEnd={onDragEnd}
                             onEdit={() => onShiftEdit(s)}
                           />
+                        ))}
+                        {cellAppts.map((a) => (
+                          <ApptChip key={`appt-${a.id}`} appt={a} />
                         ))}
                         {editable && (
                           <div className="mt-auto flex items-center justify-center gap-1 pt-0.5">
@@ -220,6 +225,27 @@ export function RotaGrid({
   );
 }
 
+/** Read-only booked-meeting chip (name + times) shown alongside shifts on the rota cell. */
+function ApptChip({ appt }: { appt: PlanningAppointment }) {
+  return (
+    <div
+      title={`Rendez-vous · ${appt.name} (${appt.email})${appt.subject ? ` · ${appt.subject}` : ''}${appt.status === 'pending' ? ' · à confirmer' : ''}`}
+      className={cn(
+        'rounded border border-accent/50 bg-accent/10 px-1.5 py-0.5 text-left text-[11px] leading-tight text-accent-hover',
+        appt.status === 'pending' && 'border-dashed opacity-80',
+      )}
+    >
+      <div className="flex items-center gap-1">
+        <CalendarClock size={10} className="shrink-0" />
+        <span className="truncate font-medium">RDV · {appt.name}</span>
+      </div>
+      <span className="mt-0.5 block font-mono text-[10px] opacity-80">
+        {appt.start}–{appt.end}
+      </span>
+    </div>
+  );
+}
+
 interface ShiftChipProps {
   shift: Shift;
   editable?: boolean;
@@ -236,7 +262,8 @@ function ShiftChip({ shift, editable = true, hourTypes, boards, onDragStart, onD
   const time = shift.heureDebut && shift.heureFin ? `${shift.heureDebut}–${shift.heureFin}` : null;
   const ht = shift.hourTypeId != null ? hourTypes[shift.hourTypeId] : undefined;
   const board = shift.boardId != null ? boards[shift.boardId] : undefined;
-  const colored = ht?.color ?? null;
+  // Hour-type colour shaded per project (distinct tint per project on the same type).
+  const colored = shadeForProject(ht?.color, shift.boardId);
   return (
     <div
       draggable={editable}
