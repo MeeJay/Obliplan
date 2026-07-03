@@ -1,108 +1,105 @@
-Obliplan sépare la configuration **globale de l'instance** (partagée par tous les workspaces) de la configuration propre à chaque tenant. Deux écrans sont réservés à l'**administrateur de plateforme** (system admin), et non au simple administrateur de tenant : **Paramètres** (`/settings`) et **Espaces de travail** (`/workspaces`). Tous les réglages sont persistés en base de données — jamais dans le dépôt.
+La configuration globale d'Obliplan (à propos, e-mail SMTP, passerelle SSO Obligate) est regroupée dans deux écrans réservés à l'administrateur **de la plateforme** : **Paramètres** (`/settings`) et **Espaces de travail** (`/workspaces`). Ces réglages ne sont **jamais** stockés dans le dépôt : ils vivent en base, dans la table `app_config`.
 
-## Écrans et contrôle d'accès
+## Qui peut y accéder
 
-| Écran | Route front | Garde front | Contenu |
-|---|---|---|---|
-| Paramètres | `/settings` | `PlatformAdminRoute` | À propos / infos système, SMTP, passerelle Obligate SSO, jours fériés |
-| Espaces de travail | `/workspaces` | `PlatformAdminRoute` | Création / renommage / suppression de workspaces, membres, modules |
+Ces deux écrans sont réservés au **platform admin** (system admin), et non au simple administrateur de tenant.
 
-La garde front `PlatformAdminRoute` s'appuie sur `isPlatformAdmin()` : elle vérifie le **vrai drapeau plateforme** de la session, pas le rôle effectif dans le tenant courant. Un administrateur de tenant (rôle `admin` dans son workspace) n'atteint donc pas ces écrans.
+- **Côté client**, les routes `/settings` et `/workspaces` sont enveloppées dans `PlatformAdminRoute`, qui redirige vers l'accueil si `isPlatformAdmin()` est faux. Les entrées « Paramètres » et « Workspaces » de la barre latérale ne s'affichent qu'à ce profil (`platform: true`).
+- **Côté serveur**, le routeur `admin/config` applique `requireAuth` puis `requirePlatformAdmin()`. Ce garde vérifie le drapeau réel `session.platformAdmin` (et non le rôle effectif par tenant), afin qu'un simple administrateur de tenant ne puisse pas lire ni modifier des réglages inter-tenants. En cas d'échec : `403 « Réservé aux administrateurs de la plateforme »`.
 
-Côté serveur, les routes de configuration globale sont montées sous `/api/admin/config` et protégées par `requireAuth` + `requirePlatformAdmin()`. Ce dernier renvoie `403 Réservé aux administrateurs de la plateforme` si `session.platformAdmin` est faux — un administrateur de tenant ne peut donc ni lire ni modifier des réglages transverses.
+> Un administrateur de tenant gère ses salariés, contrats, permissions, modules et clients (voir les autres pages de ce chapitre), mais pas la configuration globale de l'instance.
 
-> La distinction est volontaire : SMTP et passerelle Obligate sont des réglages d'instance (cross-tenant). Les confier au seul administrateur plateforme évite qu'un administrateur d'un workspace n'altère la configuration vue par les autres.
+## Écran « Paramètres » (`/settings`)
 
-## À propos / infos système
+La page `SettingsPage` regroupe quatre sections : À propos, Serveur SMTP, Obligate SSO Gateway et Jours fériés.
 
-La section « À propos » de `/settings` affiche un instantané renvoyé par `systemInfoService.get()` via `GET /api/admin/config/system`. Aucune de ces valeurs n'est stockée : elles sont calculées à la volée à chaque appel.
+### À propos / informations système
 
-| Bloc | Champ (`SystemInfo`) | Source |
-|---|---|---|
-| Versions | `appVersion` | `version` du `package.json` serveur (`dev` en repli) |
-| Versions | `nodeVersion` | `process.version` |
-| Instance | `uptimeSeconds` | `process.uptime()` |
-| Instance | `environment.isDocker` | présence de `/.dockerenv` |
-| Instance | `environment.platform` | `os.type()`, `os.release()`, `process.arch` |
-| CPU | `cpu.cores` | `os.cpus().length` |
-| CPU | `cpu.loadAvg1` / `loadAvg5` / `loadAvg15` | `os.loadavg()` |
-| Mémoire | `memory.processRssMb` / `processHeapMb` | `process.memoryUsage()` |
-| Mémoire | `memory.systemFreeMb` / `systemTotalMb` | `os.freemem()` / `os.totalmem()` |
-| Base de données | `environment.dbStatus` | `select 1` (→ `ok` ou `error`) |
+La section « À propos » affiche l'état de l'instance, fourni par `systemInfoService.get()` (endpoint `GET /admin/config/system`). Aucune de ces valeurs n'est configurable : ce sont des mesures lues au moment de l'appel.
 
-La version du **client** affichée à côté de celle du serveur provient de la constante de build `__APP_VERSION__` injectée par Vite (elle n'est pas dans `SystemInfo`).
+| Champ | Source | Détail |
+|-------|--------|--------|
+| `appVersion` | `package.json` du serveur (`version`) | Version du serveur ; repli sur `dev` si illisible |
+| `nodeVersion` | `process.version` | Version de Node.js |
+| `uptimeSeconds` | `process.uptime()` | Durée de fonctionnement du process |
+| `environment.isDocker` | présence de `/.dockerenv` | Affiché `Docker` ou `Natif` |
+| `environment.platform` | `os.type()` / `os.release()` / `process.arch` | Système et architecture |
+| `environment.dbStatus` | `select 1` sur PostgreSQL | `ok` (connectée) ou `error` |
+| `cpu.cores` | `os.cpus().length` | Nombre de cœurs |
+| `cpu.loadAvg1` / `loadAvg5` / `loadAvg15` | `os.loadavg()` | Charge moyenne 1 / 5 / 15 min |
+| `memory.processRssMb` / `processHeapMb` | `process.memoryUsage()` | RSS et heap utilisé du process (Mo) |
+| `memory.systemFreeMb` / `systemTotalMb` | `os.freemem()` / `os.totalmem()` | Mémoire système libre / totale (Mo) |
 
-## Passerelle Obligate SSO
+> La version du client est affichée séparément à partir de la constante de build `__APP_VERSION__`, indépendamment du serveur.
 
-La passerelle connecte Obliplan à un serveur SSO Obligate (authentification centralisée + navigation inter-applications). Le réglage comporte trois champs : **URL**, **clé API** et un interrupteur **activation**.
+### Passerelle Obligate SSO
 
-| Endpoint | Rôle |
-|---|---|
-| `GET /api/admin/config/obligate` | Vue publique (`ObligateConfig`) |
-| `PATCH /api/admin/config/obligate` | Mise à jour partielle (`url`, `apiKey`, `enabled`) |
+Connecte l'instance à une passerelle SSO Obligate (authentification centralisée et navigation inter-applications). La configuration se compose de trois éléments : l'URL de la passerelle, la clé API et l'activation.
 
-La vue publique ne divulgue **jamais** la clé API : `ObligateConfig` expose `url`, un booléen `apiKeySet` (« clé définie ») et `enabled`. Le secret n'existe qu'en interne (`getObligateRaw()`, usage serveur uniquement).
+Endpoints (platform admin) :
 
-Règles de fonctionnement observables :
+| Méthode | Route | Rôle |
+|---------|-------|------|
+| `GET` | `/admin/config/obligate` | Vue publique : `{ url, apiKeySet, enabled }` |
+| `PATCH` | `/admin/config/obligate` | Met à jour l'URL, la clé API et/ou l'activation |
 
-- Un `PATCH` sans nouvelle valeur de clé conserve la clé existante (une chaîne vide n'écrase pas le secret).
-- Le serveur **refuse** une URL qui pointerait vers l'application elle-même (`400`), pour éviter une boucle de redirection.
-- Une fois le SSO **activé**, la page de connexion redirige vers Obligate et l'authentification locale est désactivée ; les utilisateurs sont provisionnés à la première connexion.
-- Si la passerelle devient injoignable, l'authentification locale est automatiquement rétablie en secours.
+La vue publique ne renvoie **jamais** la clé en clair : elle expose seulement `apiKeySet` (booléen). Dans l'interface, l'URL est enregistrée à la perte de focus si elle a changé ; la clé API n'est enregistrée que lorsqu'une valeur non vide est saisie (la précédente est conservée sinon) ; l'interrupteur d'activation n'apparaît qu'une fois l'URL et la clé renseignées.
 
-L'interrupteur d'activation n'apparaît dans l'UI que lorsque l'URL **et** la clé API sont renseignées.
+Stockage en base (`app_config`) :
 
-```json
-// app_config → key = 'obligate_config'
-{ "url": "https://obligate.example.com", "apiKey": "•••" }
-// app_config → key = 'obligate_enabled'  ⇒ value 'true' | 'false'
-```
+| Clé `app_config` | Valeur | Contenu |
+|------------------|--------|---------|
+| `obligate_config` | JSON `{ url, apiKey }` | URL de la passerelle et clé API (secret) |
+| `obligate_enabled` | `'true'` / `'false'` | Activation du SSO |
 
-## Serveur SMTP / e-mail
+> Une fois le SSO activé, la page de connexion redirige vers Obligate et l'authentification locale est désactivée ; les utilisateurs sont provisionnés à la première connexion. Si la passerelle devient injoignable, l'authentification locale est automatiquement rétablie en secours. La clé se génère dans Obligate (**Connected Apps → Add App**).
 
-Le serveur SMTP sert à l'envoi des notifications (demandes de congé, validations, affectations…). Un seul serveur est configuré.
+### SMTP / e-mail
 
-| Endpoint | Rôle |
-|---|---|
-| `GET /api/admin/config/smtp` | Vue publique (`SmtpConfig`) |
-| `PATCH /api/admin/config/smtp` | Mise à jour partielle |
-| `POST /api/admin/config/smtp/test` | Envoi d'un e-mail de test à `{ to }` |
+Serveur d'envoi utilisé pour les notifications (demandes de congé, validations, affectations…).
 
-Champs de `SmtpConfig` (vue publique) : `host`, `port`, `secure`, `user`, `fromAddress`, et le booléen `passSet`. Comme pour Obligate, le **mot de passe n'est jamais renvoyé** : seul `passSet` indique qu'il est défini, et un `PATCH` avec un mot de passe vide conserve l'ancien. L'écran propose un bouton « Envoyer un test » qui appelle `smtp/test` avec la configuration enregistrée.
+Endpoints (platform admin) :
 
-```json
-// app_config → key = 'smtp_config'
-{ "host": "smtp.example.com", "port": 587, "secure": false,
-  "user": "no-reply", "pass": "•••", "fromAddress": "no-reply@example.com" }
-```
+| Méthode | Route | Rôle |
+|---------|-------|------|
+| `GET` | `/admin/config/smtp` | Vue publique : `{ host, port, secure, user, fromAddress, passSet }` |
+| `PATCH` | `/admin/config/smtp` | Met à jour la configuration SMTP |
+| `POST` | `/admin/config/smtp/test` | Envoie un e-mail de test à `{ to }` |
 
-## Jours fériés
+Comme pour Obligate, la vue publique n'expose jamais le mot de passe : seul `passSet` (booléen) indique qu'il est défini. Un `PATCH` ne remplace le mot de passe que si une valeur non vide est fournie. Le test d'envoi renvoie `{ ok, error? }`.
 
-L'écran `/settings` héberge aussi la gestion des jours fériés (nationaux et personnalisés). Contrairement au reste de la page, l'**ajout / suppression** d'un jour férié personnalisé n'est pas gardé par le rôle plateforme mais par la capacité `planning:write` (`canManageHolidays`). Ces jours ne consomment pas de congé et sont déduits des heures attendues.
+Champs de configuration :
+
+| Champ | Type | Note |
+|-------|------|------|
+| `host` | chaîne | Hôte SMTP (p. ex. `smtp.example.com`) |
+| `port` | entier | Port (587 par défaut dans le formulaire) |
+| `secure` | booléen | TLS |
+| `user` | chaîne | Utilisateur d'authentification |
+| `pass` | secret | Mot de passe (jamais renvoyé) |
+| `fromAddress` | chaîne | Adresse d'expéditeur (p. ex. `no-reply@example.com`) |
+
+Stockage en base : clé `smtp_config` de `app_config`, au format JSON `{ host, port, secure, user, pass, fromAddress }`.
+
+> La section « Jours fériés » du même écran ne relève pas de la configuration de plateforme : elle est pilotée par la capacité `planning:write` et gère les jours fériés nationaux et personnalisés. Voir le chapitre « Congés ».
+
+## Écran « Espaces de travail » (`/workspaces`)
+
+La page `WorkspacesPage` (platform admin) permet de créer, renommer et supprimer des espaces de travail (tenants), de gérer leurs membres et d'activer/désactiver leurs modules. Les endpoints correspondants (`/tenants/all`, `/tenants`, `/tenants/:id/members`, `/tenants/:id/modules`) sont tous protégés par `requirePlatformAdmin()`. L'espace de travail dont le `slug` est `default` ne peut pas être supprimé.
+
+L'activation des modules par tenant est détaillée dans « Activation des modules par tenant ».
 
 ## Où sont stockés les réglages
 
-Toute la configuration globale vit dans la table **`app_config`**, un simple magasin clé/valeur :
-
-```sql
-CREATE TABLE app_config (
-  key        VARCHAR(128) PRIMARY KEY,
-  value      TEXT NULL,
-  updated_at TIMESTAMP DEFAULT now()
-);
-```
-
-Trois clés sont utilisées : `obligate_config` (JSON), `obligate_enabled` (`'true'`/`'false'`), `smtp_config` (JSON). Les secrets (clé API Obligate, mot de passe SMTP) sont donc conservés **en base**, jamais dans le dépôt ni dans un fichier de configuration versionné, et ne transitent jamais vers le client.
+Tous ces réglages persistent dans la table `app_config` (paire clé/valeur, `insert(...).onConflict('key').merge(...)`), accessible via `appConfigService.get(key)` / `set(key, value)`. Les secrets (clé API Obligate, mot de passe SMTP) sont conservés en base et ne sont jamais renvoyés en clair par l'API ni versionnés dans le dépôt.
 
 ## Références
 
 - `server/src/services/appConfig.service.ts`
 - `server/src/services/systemInfo.service.ts`
-- `server/src/controllers/appConfig.controller.ts`
 - `server/src/routes/appConfig.routes.ts`
 - `server/src/middleware/rbac.ts` (`requirePlatformAdmin`)
-- `server/src/db/migrations/007_create_app_config.ts`
-- `shared/src/config.ts`
+- `shared/src/config.ts` (`ObligateConfig`, `SmtpConfig`, `SystemInfo`)
 - `client/src/pages/SettingsPage.tsx`
 - `client/src/pages/WorkspacesPage.tsx`
-- `client/src/App.tsx` (`PlatformAdminRoute`)
+- `client/src/api/index.ts` (`appConfigApi`, `tenantApi`, `moduleApi`)

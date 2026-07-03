@@ -1,154 +1,125 @@
-Le module **récup** gère les heures de récupération d'un salarié : les crédits gagnés, les débits consommés et le solde qui en résulte. Il s'active par le module de tenant `recup` et repose sur un principe simple : un dépassement d'horaire sur un contrat **sans heures supplémentaires** ouvre un droit à récupération, mais ce droit n'est jamais crédité tout seul — un manager doit toujours l'attribuer ou valider la semaine.
+Le module **récup** trace les heures de récupération de chaque salarié sous forme de mouvements datés (crédits et débits) dont la somme constitue un solde. Il s'adresse d'abord aux contrats **sans heures supplémentaires** : lorsqu'un salarié dépasse son temps attendu sur un tel contrat, le dépassement devient *éligible* à la récupération, mais il n'est **jamais** crédité automatiquement. C'est le manager qui décide d'attribuer, d'ajuster ou de valider la récupération, et chaque décision reste tracée.
 
 ## Principe
 
-Le calcul hebdomadaire (voir « Compteurs & règles de calcul ») produit, pour chaque salarié et chaque semaine, un écart entre le temps réalisé et le temps attendu. Lorsque le contrat **n'autorise pas** les heures supplémentaires (`heuresSupAutorisees = false`), le dépassement positif est classé comme **récup éligible** (`recupEligibleMin`) plutôt que comme heures supplémentaires.
+Le calcul hebdomadaire (voir « Compteurs & règles de calcul ») distingue deux traitements du dépassement selon le contrat :
+
+- Contrat **avec** heures sup (`heuresSupAutorisees = true`) : le dépassement alimente le compteur d'heures supplémentaires (voir « Heures supplémentaires : natures, déclarations & décision »).
+- Contrat **sans** heures sup (`heuresSupAutorisees = false`) : le dépassement est reporté dans `recupEligibleMin`, un montant *éligible* à la récupération.
+
+> Le montant éligible n'est qu'une **proposition** issue du calcul. Tant qu'un manager ne l'a pas attribué ou validé, il ne figure pas au solde de récupération du salarié.
+
+Extrait du calcul (`calc.service.ts`) :
 
 ```ts
-// server/src/services/calc.service.ts (extrait)
-const overflow = Math.max(0, ecartMin); // realiseMin - attenduMin
 if (overflow > 0 && contrat) {
   if (contrat.heuresSupAutorisees) {
-    // → comptabilisé en heures sup (voir « Heures supplémentaires »)
+    // dépassement → heures supplémentaires (au-delà du seuil éventuel)
+    const floor = contrat.seuilHeuresSupMin ?? attenduMin;
+    heuresSupMin = Math.max(0, realiseMin - Math.max(attenduMin, floor));
   } else {
-    recupEligibleMin = overflow; // éligible à une attribution manuelle de récup
+    // pas d'heures sup → le dépassement devient éligible à la récup
+    recupEligibleMin = overflow;
   }
 }
 ```
 
-> **Point clé** — `recupEligibleMin` est un **compteur calculé**, jamais stocké. Il indique un droit *potentiel*. Tant qu'aucun manager n'a agi, aucun mouvement de récup n'existe et le solde reste inchangé. L'éligibilité ne se transforme jamais en crédit de façon automatique.
+## Mouvements de récupération
 
-## Attribution : toujours à l'initiative du manager
-
-Le crédit d'un droit à récupération passe par une action explicite d'un utilisateur disposant de la capacité `recup:manage` :
-
-- **Attribution manuelle** — le manager saisit un mouvement (semaine, durée, sens, motif). Le contrôleur exige `userService.canManage` sur le salarié cible et rejette sinon la demande (`403 « Seul le manager peut attribuer de la récupération »`).
-- **Validation de semaine** — le manager valide la semaine et le montant éligible est crédité en un seul mouvement idempotent (voir « Validation de semaine »).
-
-> **Note** — Un manager ne voit et ne gère que les salariés qui lui sont rattachés (`manager_id`). Un administrateur (ou un platform admin) porte sur l'ensemble du tenant.
-
-## Mouvements de récup
-
-Chaque ligne de la table `recup_mouvements` est un mouvement daté sur une semaine (le lundi). Le solde est la somme algébrique de ces mouvements.
-
-### Colonnes
+Chaque ligne de la table `recup_mouvements` est un mouvement rattaché à une semaine (le lundi de la semaine concernée). La durée est toujours **positive** ; c'est le champ `sens` qui donne la direction (crédit ou débit). Le solde est la somme des crédits moins la somme des débits.
 
 | Colonne | Type | Description |
-|---------|------|-------------|
-| `id` | entier | Identifiant du mouvement |
-| `tenant_id` | entier | Workspace propriétaire |
-| `user_id` | entier | Salarié concerné |
-| `semaine` | date ISO | Lundi de la semaine visée |
-| `heures_min` | entier | Durée en minutes, **toujours positive** (le signe est porté par `sens`) |
-| `sens` | enum | `credit` (+) ou `debit` (−) |
-| `motif` | texte \| null | Libellé libre |
-| `source` | texte \| null | Provenance du mouvement (voir table ci-dessous) |
-| `overtime_declaration_id` | entier \| null | Déclaration d'heures sup à l'origine du crédit (source `overtime`) |
-| `shift_id` | entier \| null | Créneau à l'origine du débit (source `recup-shift`) |
-| `created_by` | entier \| null | Auteur du mouvement |
-| `created_at` | horodatage | Date de création |
+| --- | --- | --- |
+| `id` | int | Identifiant du mouvement. |
+| `tenant_id` | int | Workspace propriétaire. |
+| `user_id` | int | Salarié concerné. |
+| `semaine` | date | Lundi de la semaine à laquelle s'applique le mouvement. |
+| `heures_min` | int | Montant en minutes (toujours positif). |
+| `sens` | enum | `credit` ou `debit`. |
+| `motif` | text | Motif libre (facultatif). |
+| `source` | string(16) | Provenance du mouvement (voir ci-dessous). `null` = attribution manuelle. |
+| `overtime_declaration_id` | int | Renseigné lorsque le mouvement provient d'une conversion d'heures sup en récup. |
+| `shift_id` | int | Renseigné lorsque le mouvement est la trace d'un créneau de type `recup` planifié. |
+| `created_by` | int | Auteur du mouvement. |
+| `created_at` | timestamp | Date de création. |
 
-### Sens
+Le champ `sens` est contraint en base :
 
-| Valeur | Signification | Effet sur le solde |
-|--------|---------------|--------------------|
-| `credit` | Heures de récup **gagnées** | `+ heures_min` |
-| `debit` | Heures de récup **consommées** | `− heures_min` |
+```sql
+ALTER TABLE recup_mouvements ADD CONSTRAINT recup_sens_chk
+  CHECK (sens IN ('credit','debit'));
+```
 
-### Provenance (`source`)
+### Provenance (source)
 
-La colonne `source` trace l'origine du mouvement. Elle distingue l'attribution manuelle des mouvements maintenus automatiquement par le système en miroir d'autres objets (déclarations d'heures sup, créneaux de récup).
+La provenance permet de distinguer les mouvements saisis à la main de ceux générés par le système. L'interface affiche un libellé lisible pour chacun.
 
-| `source` | Libellé (UI) | Sens | Comment il est produit |
-|----------|--------------|------|------------------------|
-| `manual` | Manuel | crédit ou débit | Saisie directe du manager (`POST /recup`) |
-| `eligible` | Validation semaine | crédit | Validation de semaine — crédite `recupEligibleMin` |
-| `overtime` | Heures sup | crédit | Part `recupMinutes` d'une déclaration d'heures sup **validée** (conversion) |
-| `recup-shift` | Récup planning | débit | Trace d'un créneau de type `recup` posé au planning |
-| `null` | Manuel | — | Provenance inconnue → traitée comme manuelle dans l'UI |
+| `source` | Libellé affiché | Sens | Origine |
+| --- | --- | --- | --- |
+| `manual` (ou `null`) | Manuel | crédit ou débit | Attribution ou ajustement saisi par le manager. |
+| `eligible` | Validation semaine | crédit | Crédit automatique du dépassement éligible lors de la validation d'une semaine. |
+| `overtime` | Heures sup | crédit | Portion d'une déclaration d'heures sup **validée** convertie en récup. |
+| `recup-shift` | Récup planning | débit | Débit reflétant un créneau de type `recup` posé au planning. |
 
-> **Note** — Les mouvements `overtime` et `recup-shift` sont maintenus par invariant : le crédit lié à une déclaration existe **si et seulement si** la déclaration est validée avec `recupMinutes > 0` ; le débit lié à un créneau existe **si et seulement si** le créneau est de type `recup` avec une durée positive. Modifier, refuser ou supprimer l'objet source ajuste ou retire le mouvement (idempotence garantie par des index partiels et des cascades de clé étrangère). La conversion heures sup → récup est décrite dans « Heures supplémentaires : natures, déclarations & décision ».
+> Les mouvements `overtime` et `recup-shift` sont maintenus par le système pour rester cohérents avec leur source : modifier ou supprimer la déclaration d'heures sup, ou le créneau de planning, répercute automatiquement le mouvement de récup lié. Les mouvements `manual` et `eligible`, eux, résultent d'une action explicite du manager.
 
 ## Solde
 
-Le solde d'un salarié est calculé à la volée, jamais stocké :
+Le solde courant est un calcul, jamais une valeur stockée :
 
 ```ts
-// server/src/services/calc.service.ts
+// Σ crédits − Σ débits (en minutes)
 export function recupSoldeMinutes(movements: RecupMouvement[]): number {
-  return movements.reduce((acc, m) => acc + (m.sens === 'credit' ? m.heuresMin : -m.heuresMin), 0);
+  return movements.reduce(
+    (acc, m) => acc + (m.sens === 'credit' ? m.heuresMin : -m.heuresMin),
+    0,
+  );
 }
 ```
 
-Autrement dit : **solde = Σ crédits − Σ débits**, en minutes. Un solde négatif (plus de récup consommée que gagnée) est possible et affiché en rouge dans l'UI.
-
-## Validation de semaine
-
-L'écran manager propose de « valider la semaine » pour créditer d'un coup la récup éligible calculée. L'opération est **idempotente** par `(tenant_id, user_id, semaine)` : re-valider ne duplique pas le crédit, il le remplace.
-
-- `GET /recup/week-preview?userId=&semaine=` renvoie ce que la validation créditerait : montant éligible, solde actuel, montant déjà crédité pour cette semaine, solde projeté.
-- `POST /recup/validate-week` applique le crédit (source `eligible`, motif « Crédit récup éligible (validation semaine) »).
-
-> **Note** — La validation reste une **action manuelle du manager**. Elle ne fait que matérialiser en crédit le montant que le compteur a jugé éligible ; le montant n'est jamais crédité sans ce geste.
+Un solde peut donc être négatif (récupération prise d'avance) ; l'interface l'affiche alors en couleur d'alerte.
 
 ## Écrans
 
 ### Gestion manager — `/recup`
 
-Page `RecupPage`, protégée côté client par la capacité `recup:manage` et côté serveur par `requireTenantCapability('recup:manage')` sur les routes de mutation. Elle regroupe :
+La page **Attribution de récupération** (`RecupPage`) est réservée aux managers et administrateurs : la route front est protégée par la capacité `recup:manage`, et le module `recup` doit être actif sur le workspace. Un manager n'y voit que les salariés qui lui sont rattachés (`manager_id`) ; un administrateur voit l'ensemble du workspace.
 
-- la **liste des salariés** rattachés au manager (avec un badge de récup éligible pour la semaine courante) ;
-- le **panneau de validation de semaine** (aperçu + bouton « Valider & créditer ») ;
-- la case **Accès self-service** qui active la vue employé (voir ci-dessous) ;
-- le **formulaire d'attribution** (semaine du lundi, durée en heures, sens crédit/débit, motif) ;
-- le **tableau des mouvements** avec leur provenance.
+Elle réunit trois blocs pour le salarié sélectionné :
 
-### Vue self-service employé — `/ma-recup`
+- **Valider la semaine** : affiche un aperçu (durée éligible de la semaine, solde actuel, montant à créditer, solde projeté) puis crédite le montant éligible d'un clic. L'opération est **idempotente** : re-valider une semaine déjà créditée remplace le crédit `eligible` existant au lieu de le dupliquer. Un interrupteur *Accès self-service* y permet d'activer la vue employé (voir plus bas).
+- **Attribution manuelle** : formulaire semaine (lundi) / durée en heures / sens (crédit ou débit) / motif. C'est le geste par lequel le manager attribue ou ajuste la récupération. Un raccourci pré-remplit la durée avec la récup éligible de la semaine en cours.
+- **Mouvements** : historique complet (semaine, sens, durée, source, motif).
 
-Page `RecupSelfPage`, en **lecture seule** : le salarié consulte son solde courant et l'historique de ses mouvements, sans pouvoir en créer ni en modifier. L'accès est conditionné (garde `RecupSelfRoute`) à `isManager() || user.recupSelfService` : un manager y accède toujours, un salarié uniquement si l'option a été activée pour lui.
+### Vue employé — `/ma-recup`
 
-> **Avertissement** — Le self-service est un **opt-in par salarié** (`users.recup_self_service`), basculé par le manager via `PATCH /recup/self-service`. Sans cet opt-in, un salarié non-manager qui appelle `GET /recup` sur lui-même reçoit un `403 « Accès self-service récup non activé »`.
+La page **Ma récupération** (`RecupSelfPage`) est une vue en lecture seule : le salarié y consulte son solde courant et l'historique de ses mouvements, sans pouvoir en créer ni en modifier. L'accès est un **opt-in** : la route est ouverte aux managers/administrateurs, ou aux salariés dont l'indicateur `user.recupSelfService` (colonne `users.recup_self_service`, `false` par défaut) a été activé par leur manager depuis l'écran `/recup`.
 
-## Capacité & module
+### Endpoints
 
-| Élément | Valeur | Portée |
-|---------|--------|--------|
-| Module de tenant | `recup` | Active toutes les routes `/recup` |
-| Capacité | `recup:manage` | « Gérer la récupération » (groupe Planning) |
+| Endpoint | Méthode | Capacité | Rôle |
+| --- | --- | --- | --- |
+| `/recup` | GET | — (contrôlée dans le contrôleur) | Liste les mouvements et le solde. Soi‑même si self-service activé, sinon manager/admin sur la cible. |
+| `/recup/week-preview` | GET | `recup:manage` | Aperçu de ce que créditerait la validation d'une semaine. |
+| `/recup/validate-week` | POST | `recup:manage` | Crédite (idempotent) la récup éligible de la semaine. |
+| `/recup/self-service` | PATCH | `recup:manage` | Active/désactive la vue self-service d'un salarié. |
+| `/recup` | POST | `recup:manage` | Crée un mouvement (attribution manuelle). |
+| `/recup/:id` | DELETE | `recup:manage` | Supprime un mouvement. |
 
-## Endpoints
+Toutes ces routes sont montées sous le préfixe `/recup` et protégées par le module `recup`.
 
-Toutes les routes sont montées sous `/recup` et gardées par le module `recup`.
-
-| Méthode & chemin | Capacité | Rôle |
-|------------------|----------|------|
-| `GET /recup?userId=` | self (opt-in) ou `canManage` | Mouvements + solde d'un salarié |
-| `GET /recup/week-preview?userId=&semaine=` | `recup:manage` | Aperçu de ce que créditerait la validation |
-| `POST /recup/validate-week` | `recup:manage` | Crédite (idempotent) la récup éligible de la semaine |
-| `PATCH /recup/self-service` | `recup:manage` | Active/désactive la vue self-service d'un salarié |
-| `POST /recup` | `recup:manage` | Attribue un mouvement manuel |
-| `DELETE /recup/:id` | `recup:manage` | Supprime un mouvement |
-
-### Contraintes de saisie (attribution manuelle)
-
-```ts
-// server/src/validators/schemas.ts — createRecupSchema
-{
-  userId:    number entier positif,
-  semaine:   date ISO yyyy-mm-dd,
-  heuresMin: entier positif, max 7 * 24 * 60 (une semaine),
-  sens:      'credit' | 'debit',
-  motif:     chaîne ≤ 2000 caractères, optionnelle/nullable
-}
-```
+> Côté serveur, l'attribution manuelle refuse toute création par un tiers non habilité : « Seul le manager peut attribuer de la récupération ». La lecture de sa propre récup par un salarié est refusée tant que le self-service n'est pas activé (« Accès self-service récup non activé »).
 
 ## Références
 
 - `server/src/services/recup.service.ts`
 - `server/src/controllers/recup.controller.ts`
 - `server/src/routes/recup.routes.ts`
-- `server/src/validators/recup.schema.ts`, `server/src/validators/schemas.ts` (`createRecupSchema`)
 - `server/src/services/calc.service.ts` (`recupSoldeMinutes`, `recupEligibleMin`)
-- `shared/src/types.ts` (`RecupMouvement`, `RecupSens`)
-- `client/src/pages/RecupPage.tsx`, `client/src/pages/RecupSelfPage.tsx`
-- `client/src/App.tsx` (`RecupSelfRoute`, garde `recup:manage`)
+- `server/src/db/migrations/010_create_recup_mouvements.ts`
+- `server/src/db/migrations/025_recup_redesign.ts` (colonne `source`, `recup_self_service`, source `eligible`)
+- `server/src/db/migrations/042_overtime_recup_and_decision_comment.ts` (colonne `overtime_declaration_id`, source `overtime`)
+- `server/src/db/migrations/044_recup_shift_link.ts` (colonne `shift_id`, source `recup-shift`)
+- `shared/src/types.ts` (`RecupSens`, `RecupMouvement`, `recupSelfService`)
+- `client/src/pages/RecupPage.tsx`
+- `client/src/pages/RecupSelfPage.tsx`

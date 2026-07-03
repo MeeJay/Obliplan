@@ -1,6 +1,6 @@
 Les **équipes** regroupent des utilisateurs du locataire et leur attribuent un périmètre de ressources (clients / projets, en lecture ou lecture-écriture). Elles constituent l'**Axe C** de la matrice de permissions d'Obliplan et pilotent la visibilité des projets, la création de projets, l'affectation et le filtrage du planning. Cette page décrit leur structure, l'écran `/equipes` et leur articulation avec le RBAC.
 
-## Équipes (teams / team_memberships)
+## Équipes (user_teams / team_memberships)
 
 ### Colonnes de la table `user_teams`
 

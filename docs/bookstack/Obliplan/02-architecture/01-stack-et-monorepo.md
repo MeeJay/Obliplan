@@ -59,7 +59,7 @@ Le client est une **SPA** : Vite construit un bundle statique servi par Nginx en
 
 `@obliplan/shared` centralise les **types du domaine** consommés par le serveur *et* le client (mêmes formes camelCase de part et d'autre). Le serveur mappe les lignes SQL `snake_case` vers ces types via des helpers `rowToX`.
 
-- `shared/src/index.ts` réexporte les modules du domaine : `types`, `tenants`, `kanban`, `tasks`, `client`, `config`, `leave`, `hourtype`, `timetracking`, `overtime`, `permissions`, `teams`, `modules`, `notification`, `compliance`, `holiday`, `reporting`, `planningImport`, `planningViews`.
+- `shared/src/index.ts` réexporte les modules du domaine : `types`, `tenants`, `kanban`, `tasks`, `client`, `config`, `leave`, `hourtype`, `timetracking`, `overtime`, `permissions`, `teams`, `modules`, `notification`, `compliance`, `holiday`, `reporting`, `planningImport`, `planningViews`, `booking`.
 - Le paquet est compilé avec `tsc` (`main: dist/index.js`, `types: dist/index.d.ts`).
 - En dev, le client résout `@obliplan/shared` directement vers les sources (`../shared/src`) via un alias Vite ; le serveur consomme le `dist/` compilé (`npm run build:shared` requis avant `dev:server`).
 

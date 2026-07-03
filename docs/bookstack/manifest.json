@@ -1,0 +1,391 @@
+{
+  "shelf": {
+    "name": "ObliTools",
+    "description": "Documentation de la suite ObliTools — outils internes de l'écosystème Obli."
+  },
+  "book": {
+    "name": "Obliplan",
+    "description": "Obliplan — module de gestion du temps de travail de la suite Obli : planning des salariés, suivi du réalisé vs contrat, récupération, heures supplémentaires, congés, pointage et gestion de projet interne. Multi-tenant, SSO délégué à Obligate.",
+    "priority": 1
+  },
+  "chapters": [
+    {
+      "name": "Présentation",
+      "priority": 1,
+      "pages": [
+        {
+          "name": "Vue d'ensemble & positionnement",
+          "file": "01-presentation/01-vue-d-ensemble.md",
+          "priority": 1
+        },
+        {
+          "name": "Concepts clés & glossaire",
+          "file": "01-presentation/02-concepts-cles.md",
+          "priority": 2
+        },
+        {
+          "name": "Rôles, capacités & périmètres",
+          "file": "01-presentation/03-roles-et-permissions.md",
+          "priority": 3
+        },
+        {
+          "name": "Panorama des fonctionnalités & modules",
+          "file": "01-presentation/04-panorama-fonctionnel.md",
+          "priority": 4
+        }
+      ]
+    },
+    {
+      "name": "Architecture technique",
+      "priority": 2,
+      "pages": [
+        {
+          "name": "Stack technique & monorepo",
+          "file": "02-architecture/01-stack-et-monorepo.md",
+          "priority": 1
+        },
+        {
+          "name": "Architecture serveur (couches & middleware)",
+          "file": "02-architecture/02-architecture-serveur.md",
+          "priority": 2
+        },
+        {
+          "name": "Architecture client (SPA, store, design system)",
+          "file": "02-architecture/03-architecture-client.md",
+          "priority": 3
+        },
+        {
+          "name": "Multi-tenant, isolation & modules par tenant",
+          "file": "02-architecture/04-multi-tenant-et-modules.md",
+          "priority": 4
+        }
+      ]
+    },
+    {
+      "name": "Installation & configuration",
+      "priority": 3,
+      "pages": [
+        {
+          "name": "Démarrage rapide (Docker Compose)",
+          "file": "03-installation/01-demarrage-docker.md",
+          "priority": 1
+        },
+        {
+          "name": "Développement local",
+          "file": "03-installation/02-developpement-local.md",
+          "priority": 2
+        },
+        {
+          "name": "Référence des variables d'environnement",
+          "file": "03-installation/03-variables-environnement.md",
+          "priority": 3
+        },
+        {
+          "name": "Données de démonstration (seed)",
+          "file": "03-installation/04-donnees-demo.md",
+          "priority": 4
+        }
+      ]
+    },
+    {
+      "name": "Authentification & SSO Obligate",
+      "priority": 4,
+      "pages": [
+        {
+          "name": "Modes d'authentification & sessions",
+          "file": "04-authentification/01-modes-authentification.md",
+          "priority": 1
+        },
+        {
+          "name": "SSO Obligate : flux OAuth détaillé",
+          "file": "04-authentification/02-sso-obligate.md",
+          "priority": 2
+        },
+        {
+          "name": "Enregistrer Obliplan dans Obligate",
+          "file": "04-authentification/03-enregistrer-app-obligate.md",
+          "priority": 3
+        },
+        {
+          "name": "RBAC : capacités, permission sets & rôles",
+          "file": "04-authentification/04-rbac-permissions.md",
+          "priority": 4
+        }
+      ]
+    },
+    {
+      "name": "Modèle de données",
+      "priority": 5,
+      "pages": [
+        {
+          "name": "Vue d'ensemble du schéma & conventions",
+          "file": "05-modele-donnees/01-vue-schema.md",
+          "priority": 1
+        },
+        {
+          "name": "Cœur : tenants, users, contrats",
+          "file": "05-modele-donnees/02-coeur-tenants-users-contrats.md",
+          "priority": 2
+        },
+        {
+          "name": "Planning : shifts, modèles, jours d'école, jours fériés, vues",
+          "file": "05-modele-donnees/03-planning-shifts.md",
+          "priority": 3
+        },
+        {
+          "name": "Temps : pointage, types d'heures, récup, heures sup",
+          "file": "05-modele-donnees/04-temps-recup-heures-sup.md",
+          "priority": 4
+        },
+        {
+          "name": "Congés : types & demandes",
+          "file": "05-modele-donnees/05-conges.md",
+          "priority": 5
+        },
+        {
+          "name": "Projets, tâches & équipes",
+          "file": "05-modele-donnees/06-projets-taches-equipes.md",
+          "priority": 6
+        },
+        {
+          "name": "Transverse : notifications, audit, push, configuration",
+          "file": "05-modele-donnees/07-transverse.md",
+          "priority": 7
+        }
+      ]
+    },
+    {
+      "name": "Référence API REST",
+      "priority": 6,
+      "pages": [
+        {
+          "name": "Conventions générales de l'API",
+          "file": "06-api/01-conventions.md",
+          "priority": 1
+        },
+        {
+          "name": "Auth & tenants",
+          "file": "06-api/02-auth-tenants.md",
+          "priority": 2
+        },
+        {
+          "name": "Planning, shifts, modèles, jours d'école & fériés",
+          "file": "06-api/03-planning-shifts.md",
+          "priority": 3
+        },
+        {
+          "name": "Récup, pointage, types d'heures & heures sup",
+          "file": "06-api/04-temps-recup-heures-sup.md",
+          "priority": 4
+        },
+        {
+          "name": "Congés",
+          "file": "06-api/05-conges.md",
+          "priority": 5
+        },
+        {
+          "name": "Projets (Kanban), tâches, todo & équipes",
+          "file": "06-api/06-projets-taches.md",
+          "priority": 6
+        },
+        {
+          "name": "Administration & endpoints transverses",
+          "file": "06-api/07-admin-transverse.md",
+          "priority": 7
+        }
+      ]
+    },
+    {
+      "name": "Guide fonctionnel — Planning & temps",
+      "priority": 7,
+      "pages": [
+        {
+          "name": "Ma semaine (employé)",
+          "file": "07-planning/01-mon-planning.md",
+          "priority": 1
+        },
+        {
+          "name": "Planning & grille équipe (manager)",
+          "file": "07-planning/02-planning-equipe.md",
+          "priority": 2
+        },
+        {
+          "name": "Édition des shifts, modèles & validation",
+          "file": "07-planning/03-shifts-et-templates.md",
+          "priority": 3
+        },
+        {
+          "name": "Compteurs & règles de calcul",
+          "file": "07-planning/04-compteurs-et-calcul.md",
+          "priority": 4
+        },
+        {
+          "name": "Jours fériés, conformité & charge",
+          "file": "07-planning/05-feries-conformite-charge.md",
+          "priority": 5
+        },
+        {
+          "name": "Import de planning, vues & calendrier ICS",
+          "file": "07-planning/06-import-vues-calendrier.md",
+          "priority": 6
+        }
+      ]
+    },
+    {
+      "name": "Guide fonctionnel — Récup, heures sup & pointage",
+      "priority": 8,
+      "pages": [
+        {
+          "name": "Récupération : règles, attribution & solde",
+          "file": "08-recup-heures-sup-temps/01-recuperation.md",
+          "priority": 1
+        },
+        {
+          "name": "Heures supplémentaires : natures, déclarations & décision",
+          "file": "08-recup-heures-sup-temps/02-heures-supplementaires.md",
+          "priority": 2
+        },
+        {
+          "name": "Pointage : types d'heures, clients & saisies",
+          "file": "08-recup-heures-sup-temps/03-pointage-temps.md",
+          "priority": 3
+        }
+      ]
+    },
+    {
+      "name": "Guide fonctionnel — Congés & absences",
+      "priority": 9,
+      "pages": [
+        {
+          "name": "Types de congés & acquisition",
+          "file": "09-conges/01-types-conges.md",
+          "priority": 1
+        },
+        {
+          "name": "Demandes, validation & demi-journées",
+          "file": "09-conges/02-demandes-conges.md",
+          "priority": 2
+        },
+        {
+          "name": "Calendrier des congés",
+          "file": "09-conges/03-calendrier-conges.md",
+          "priority": 3
+        }
+      ]
+    },
+    {
+      "name": "Guide fonctionnel — Projets, tâches & équipes",
+      "priority": 10,
+      "pages": [
+        {
+          "name": "Kanban/Scrum : tableaux, colonnes, WIP & sprints",
+          "file": "10-projets-taches/01-kanban-scrum.md",
+          "priority": 1
+        },
+        {
+          "name": "Cartes : contenu, hiérarchie, commentaires & activité",
+          "file": "10-projets-taches/02-cartes.md",
+          "priority": 2
+        },
+        {
+          "name": "Vues : tableau, liste, table & timeline",
+          "file": "10-projets-taches/03-vues-projets.md",
+          "priority": 3
+        },
+        {
+          "name": "Tâches & todo : listes, partage & étapes",
+          "file": "10-projets-taches/04-taches-todo.md",
+          "priority": 4
+        },
+        {
+          "name": "Équipes : membres & permissions",
+          "file": "10-projets-taches/05-equipes.md",
+          "priority": 5
+        }
+      ]
+    },
+    {
+      "name": "Administration",
+      "priority": 11,
+      "pages": [
+        {
+          "name": "Paramètres de l'application",
+          "file": "11-administration/01-parametres-app.md",
+          "priority": 1
+        },
+        {
+          "name": "Gestion des utilisateurs & contrats",
+          "file": "11-administration/02-utilisateurs-contrats.md",
+          "priority": 2
+        },
+        {
+          "name": "Jeux de permissions & capacités",
+          "file": "11-administration/03-permission-sets.md",
+          "priority": 3
+        },
+        {
+          "name": "Activation des modules par tenant",
+          "file": "11-administration/04-modules-tenant.md",
+          "priority": 4
+        },
+        {
+          "name": "Clients",
+          "file": "11-administration/05-clients.md",
+          "priority": 5
+        }
+      ]
+    },
+    {
+      "name": "Exploitation, sécurité & RGPD",
+      "priority": 12,
+      "pages": [
+        {
+          "name": "Notifications : in-app, push & e-mail",
+          "file": "12-exploitation-securite/01-notifications.md",
+          "priority": 1
+        },
+        {
+          "name": "Journal d'audit inviolable (HMAC)",
+          "file": "12-exploitation-securite/02-audit.md",
+          "priority": 2
+        },
+        {
+          "name": "RGPD : export & anonymisation",
+          "file": "12-exploitation-securite/03-rgpd.md",
+          "priority": 3
+        },
+        {
+          "name": "Sécurité applicative",
+          "file": "12-exploitation-securite/04-securite.md",
+          "priority": 4
+        },
+        {
+          "name": "Supervision : santé, logs & versions",
+          "file": "12-exploitation-securite/05-supervision.md",
+          "priority": 5
+        }
+      ]
+    },
+    {
+      "name": "Release & CI/CD",
+      "priority": 13,
+      "pages": [
+        {
+          "name": "Cycle de release (000-RegularUpdate.bat)",
+          "file": "13-release-ci/01-cycle-release.md",
+          "priority": 1
+        },
+        {
+          "name": "Promotion en production (001-PromoteToProd.bat)",
+          "file": "13-release-ci/02-promotion-prod.md",
+          "priority": 2
+        },
+        {
+          "name": "Images Docker & scripts d'infra",
+          "file": "13-release-ci/03-images-docker-scripts.md",
+          "priority": 3
+        }
+      ]
+    }
+  ]
+}

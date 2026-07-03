@@ -1,54 +1,55 @@
-Le module **Clients** fournit un référentiel de clients par workspace, utilisé comme axe d'imputation du temps et de rattachement des tableaux (boards). L'écran **Clients** (`/clients`, `ClientsPage`) est réservé au rôle `admin` du tenant, et l'accès aux routes suppose que le module `clients` soit activé pour le workspace (`requireModule('clients')`).
+Le module **Clients** fournit un référentiel de clients par workspace, utilisé comme axe d'imputation du temps et de rattachement des tableaux (boards). L'écran **Clients** (`/clients`, `ClientsPage`) est réservé au rôle `admin` du tenant (côté client), et l'accès aux routes suppose que le module `clients` soit activé pour le workspace (`requireModule('clients')`).
 
 ## Gestion des clients
 
-Les créations, modifications et suppressions sont gardées par la capacité `clients:manage` ; la lecture est ouverte aux membres du tenant (avec restriction de portée, voir plus bas).
+L'écran liste les clients du tenant et permet de les créer, éditer et supprimer. Les commandes d'édition n'apparaissent qu'avec la capacité `clients:manage` (`can('clients:manage')`).
 
-| Endpoint | Garde |
-|---|---|
-| `GET /api/clients` | module `clients` + `requireTenant` |
-| `GET /api/clients/:id` | module `clients` |
-| `POST /api/clients` | capacité `clients:manage` |
-| `PUT /api/clients/:id` | capacité `clients:manage` |
-| `DELETE /api/clients/:id` | capacité `clients:manage` |
+### Endpoints
+
+| Méthode | Route | Garde |
+|---------|-------|-------|
+| `GET` | `/clients` | module `clients` actif |
+| `GET` | `/clients/:id` | module `clients` actif |
+| `POST` | `/clients` | `requireTenantCapability('clients:manage')` |
+| `PUT` | `/clients/:id` | `requireTenantCapability('clients:manage')` |
+| `DELETE` | `/clients/:id` | `requireTenantCapability('clients:manage')` |
+
+Toutes ces routes sont montées derrière `requireModule('clients')` : si le module est désactivé pour le workspace, l'API répond `403 « Module désactivé pour ce workspace »`.
 
 ### Champs d'un client
 
-| Champ (`Client`) | Colonne SQL | Type | Rôle |
-|---|---|---|---|
-| `name` | `name` | texte | Nom du client |
-| `color` | `color` | `#rrggbb` / null | Couleur (pastille par défaut, visu projets) |
-| `contact` | `contact` | texte / null | Contact (optionnel) |
-| `notes` | `notes` | texte / null | Notes libres |
-| `logo` | `logo` | texte / null | Logo encodé en data-URI (optionnel) |
-| `archived` | `archived` | bool | Archivé : masqué des nouveaux projets |
+| Champ (API) | Colonne | Type | Rôle |
+|-------------|---------|------|------|
+| `name` | `name` | chaîne | Nom du client |
+| `color` | `color` | chaîne ou `null` | Couleur (visualisation projets) |
+| `contact` | `contact` | chaîne ou `null` | Contact (optionnel) |
+| `notes` | `notes` | chaîne ou `null` | Notes libres (optionnel) |
+| `logo` | `logo` | chaîne ou `null` | Logo en data-URI (optionnel) |
+| `archived` | `archived` | booléen | Archivé (masqué des nouveaux projets) |
 
 ### Logo
 
-Le logo est importé depuis l'écran (bouton « Importer une image »). L'image est **redimensionnée côté client** de sorte que son plus grand côté soit ≤ 96 px, puis exportée en WebP (repli PNG), ce qui donne un data-URI de quelques kilo-octets stocké tel quel dans la colonne texte `logo`. Un data-URI dépassant 200 000 caractères est refusé (« Image trop lourde »). En l'absence de logo, une pastille aux initiales colorée par `color` est affichée.
+Le logo est importé côté client puis redimensionné dans un canvas de sorte que son plus grand côté soit ≤ 96 px, et exporté en WebP (repli PNG). Le résultat, un data-URI de quelques Ko, est stocké tel quel dans la colonne texte `logo`. L'import est refusé si le fichier n'est pas une image ou si le data-URI dépasse 200 000 caractères. À défaut de logo, une pastille de couleur (ou l'initiale du nom) est affichée.
 
-## Portée de visibilité (axe C)
+### Portée de la liste (Axis C)
 
-La liste des clients dépend du profil de l'appelant. Un administrateur (ou l'administrateur plateforme) voit **tous** les clients du tenant. Sinon, la visibilité est restreinte par la portée des équipes de l'utilisateur (axe C) : si la portée n'accorde pas « tous les clients », seuls les identifiants de clients accordés sont retournés (aucun → liste vide). Ce filtrage s'appuie sur `teamService.resolveScope` et la table `team_permissions` décrite dans « RBAC : capacités, permission sets & rôles ».
+`clientService.getAll` applique le périmètre par équipe : un platform admin, un `admin` de tenant ou un appel god-view (tenant `null`) obtiennent la liste **non filtrée**. Pour les autres, la liste est restreinte aux clients accordés par les équipes de l'utilisateur (résolues via `teamService.resolveScope`) ; sans périmètre, la liste est vide. Voir « Jeux de permissions & capacités » pour l'axe équipe.
 
-## Usage : imputation du temps et rattachement des boards
+### Archivage et suppression
 
-Le client sert de **rattachement** aux tableaux et, par ricochet, d'axe d'imputation du temps :
+`archived` masque le client des nouveaux projets sans le supprimer. `DELETE /clients/:id` supprime définitivement le client ; l'interface affiche « Suppression impossible » en cas d'échec.
 
-- **Rattachement des boards** — un tableau porte un `clientId` optionnel (`createBoardSchema.clientId`). C'est ce qui relie un projet Kanban/Scrum à un client.
-- **Imputation du temps** — une saisie de temps (`time_entries`) est rattachée à un board (`board_id`), non directement au client. L'imputation par client se fait donc **via le board** : les agrégats de reporting regroupent le temps par tableau et joignent le nom du client (`clients.name`) pour restituer le temps par client.
+## Usage comme axe d'imputation
 
-Un client `archived` reste exploitable pour l'historique mais est masqué des nouveaux projets.
+Le client sert de dimension transverse :
 
-Pour la saisie et l'agrégation du temps, voir « Pointage ». Pour le rattachement d'un tableau à un client et la gestion des projets, voir « Kanban/Scrum ».
+- **Imputation du temps** — les saisies de temps peuvent être rattachées à un client, qui devient un axe d'analyse. Voir « Pointage : types d'heures, clients & saisies ».
+- **Rattachement des boards** — un tableau Kanban/Scrum peut être rattaché à un client (l'écran invite d'ailleurs à créer un client « pour rattacher vos projets »). Voir « Kanban/Scrum : tableaux, colonnes, WIP & sprints ».
 
 ## Références
 
 - `server/src/services/client.service.ts`
-- `server/src/controllers/client.controller.ts`
 - `server/src/routes/clients.routes.ts`
-- `server/src/validators/client.schema.ts`
-- `server/src/db/migrations/022_add_client_to_boards.ts`
-- `server/src/services/reporting.service.ts` (agrégat temps par board → client)
-- `shared/src/types.ts` (`Client`)
+- `server/src/routes/index.ts` (`requireModule('clients')`)
 - `client/src/pages/ClientsPage.tsx`
+- `client/src/api/index.ts` (`clientApi`)

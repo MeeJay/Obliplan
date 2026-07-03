@@ -95,6 +95,8 @@ createHourTypeSchema = {
   color?: '#rrggbb' | null,
   position?: number (>=0),
   isActive?: boolean,
+  bookable?: boolean,                // réservable via le module de prise de rendez-vous
+  bookingExcludeProjects?: boolean,  // exclut les projets de la réservation
 }
 ```
 

@@ -1,93 +1,81 @@
-Créer, éditer et valider des créneaux (« shifts ») est réservé aux profils disposant de la capacité **`planning:write`**. Cette page décrit les deux éditeurs de créneau, le rôle du statut *validé* dans le calcul du réalisé, et les modèles de créneaux qui accélèrent la saisie.
+Créer, éditer et supprimer des créneaux (« shifts ») est réservé aux profils disposant de la capacité **`planning:write`**. Cette page décrit les deux éditeurs de créneau, le rôle du statut *validé* dans le calcul du réalisé, et les modèles de créneaux qui accélèrent la saisie.
 
 ## Capacité et endpoints
 
 | Action | Endpoint | Capacité |
-|---|---|---|
+| --- | --- | --- |
 | Créer un créneau | `POST /shifts` | `planning:write` |
 | Modifier un créneau | `PUT /shifts/:id` | `planning:write` |
 | Supprimer un créneau | `DELETE /shifts/:id` | `planning:write` |
-| Lister des créneaux | `GET /shifts` | soi-même, ou manager/admin (contrôlé dans le contrôleur) |
+| Modèles (liste) | `GET /shift-templates` | aucune (tout utilisateur authentifié du tenant) |
+| Modèles (créer/modifier/supprimer) | `POST` / `PUT /:id` / `DELETE /:id` `/shift-templates` | `planning:write` |
+
+Côté client, la disponibilité de ces actions est gouvernée par `useAuthStore(...).can('planning:write')`.
 
 ## Anatomie d'un créneau
 
-Un créneau (`Shift`) porte les champs suivants (mappés depuis la table `shifts`) :
+Un `Shift` (`shared/src/types.ts`) porte les champs suivants :
 
 | Champ | Type | Rôle |
-|---|---|---|
-| `userId` | number | Salarié concerné (réaffectable) |
-| `date` | ISO `yyyy-mm-dd` | Jour du créneau |
-| `heureDebut` / `heureFin` | `HH:mm` ou null | Bornes horaires (null pour les types plein-jour) |
-| `pauseMin` | number | Pause non payée, en minutes |
-| `type` | `ShiftType` | Nature du créneau (voir table ci-dessous) |
-| `statut` | `brouillon` \| `valide` | Brouillon (non publié) ou validé |
-| `note` | string ou null | Note libre |
-| `hourTypeId` | number ou null | Type d'heure (activité, couleur) |
-| `boardId` | number ou null | Projet rattaché |
+| --- | --- | --- |
+| `date` | `string` (ISO `yyyy-mm-dd`) | Jour du créneau |
+| `heureDebut` / `heureFin` | `string \| null` (`HH:mm`) | Plage horaire (nulle pour un type sans heures) |
+| `pauseMin` | `number` | Pause non payée, en minutes |
+| `type` | `ShiftType` | `travail`, `astreinte`, `pause`, `repos`, `recup`, `conge`, `absence`, `ecole` |
+| `statut` | `ShiftStatus` | `brouillon` ou `valide` |
+| `note` | `string \| null` | Note libre (masquée dans la vue d'ensemble) |
+| `hourTypeId` | `number \| null` | Type d'heure/activité rattaché |
+| `boardId` | `number \| null` | Projet (board) rattaché |
 
-Types de créneau (`ShiftType`) : `travail`, `astreinte`, `pause`, `repos`, `recup`, `conge`, `absence`, `ecole`.
+## Les deux éditeurs
 
-## Éditeur complet — `ShiftEditor`
+### `ShiftEditor` — édition complète
 
-Ouvert depuis le récap équipe (`/equipe`) ou la vue Semaine du tableau planning, `ShiftEditor` est une boîte de dialogue avec les champs :
+Ouvert depuis le Récap (`/equipe`) ou la grille Semaine (`/planning-equipe`) sur un ajout ou un clic de créneau. Il permet de choisir un **modèle** (pré-remplissage), le **type**, les **heures** début/fin, la **pause (min)**, le **type d'heure**, le **projet** (avec création de projet à la volée « + Nouveau projet », client optionnel), le **statut** (Brouillon/Validé) et une **note**.
 
-- **Modèle** : pré-remplit le créneau à partir d'un modèle existant.
-- **Type** : l'un des huit `ShiftType`.
-- Si le type porte des heures (`travail`, `astreinte`, `pause`) : **Début**, **Fin**, **Pause (min)**, **Type d'heure** et **Projet**. Un lien « + Nouveau projet » crée un board à la volée (nom, et — via la clé à molette — un client optionnel).
-- **Statut** : `Brouillon` ou `Validé`.
-- **Note**.
+Règle clé : seuls les types dits « travaillés » (`TIMED_SHIFT_TYPES` = `travail`, `astreinte`, `pause`) conservent heures, pause, type d'heure et projet ; pour tout autre type, ces champs sont forcés à `null`/`0` à l'enregistrement. À la création, le statut par défaut proposé est **Validé**.
 
-> Valeurs par défaut d'un **nouveau** créneau via `ShiftEditor` : type `travail`, 09:00–17:00, pause 60 min, **statut `Validé`**. Pour les types sans heures, `heureDebut`, `heureFin`, `hourTypeId`, `boardId` sont forcés à null et `pauseMin` à 0 à l'enregistrement.
+### `ShiftQuickEditor` — édition rapide
 
-## Éditeur rapide — `ShiftQuickEditor`
+Popover compact ouvert après avoir dessiné un créneau sur la grille horaire (flux « tracer puis étiqueter »). Il règle le type, les heures, le type d'heure (palette de couleurs), le projet, le statut et la note. Idéal pour qualifier en un geste un créneau fraîchement créé en brouillon.
 
-Popover compact du flux « dessiner puis qualifier » de la grille horaire. Après avoir tracé un créneau (créé en **brouillon**, type `travail`), il permet de régler le **type**, les **heures**, le **type d'heure** (boutons colorés), le **projet**, le **statut** et la **note**. Il ne gère pas la pause ni la création de projet à la volée (contrairement à `ShiftEditor`).
+## Statut brouillon → validé et calcul du réalisé
 
-## Statut brouillon → validé, et son rôle dans le calcul
+Le statut est central pour les compteurs :
 
-Le statut est central pour le calcul du réalisé :
+> **Seuls les créneaux `type = travail` ET `statut = valide` alimentent le réalisé** (`shiftWorkedMinutes` dans `calc.service.ts`). Un créneau `travail` resté en **brouillon** ne compte pas dans le réalisé.
 
-```ts
-// server/src/services/calc.service.ts
-export function shiftWorkedMinutes(shift: Shift): number {
-  if (shift.type !== 'travail' || shift.statut !== 'valide') return 0;
-  return shiftSpanMinutes(shift); // fin − début − pause, borné ≥ 0
-}
-```
+Un créneau est créé en `brouillon` par défaut côté serveur (`shiftService.create`). Trois chemins le font passer à `valide` :
 
-Seuls les créneaux **`travail` ET `valide`** comptent dans le **réalisé**. Un brouillon, quel que soit son type, ne pèse pas dans les compteurs. C'est pourquoi la saisie assistée (dessin, glisser d'un modèle, duplication de semaine, import CSV) crée systématiquement des **brouillons**, à réviser puis **publier**.
+1. l'éditeur, en choisissant explicitement « Validé » ;
+2. la **publication** d'une semaine (`planningService.publishWeek`), qui bascule tous les brouillons de la fenêtre en `valide` et notifie les salariés ;
+3. l'**import** appliqué avec `statut: 'valide'` (l'import produit des brouillons par défaut).
 
-**Publier une semaine** bascule tous les brouillons de la fenêtre `[lundi, lundi+7)` des salariés visés en `valide`, puis notifie chaque employé concerné (`POST /planning/publish`, capacité `planning:write`). L'astreinte suit la même règle de validation : seul un créneau `astreinte` **validé** est compté.
+De même, le temps d'**astreinte** ne compte (`shiftAstreinteMinutes`) que pour les créneaux `type = astreinte` **validés**.
+
+La durée d'un créneau est toujours `fin − début − pause`, bornée à `≥ 0`.
 
 ## Astreinte et pause
 
-- **Astreinte** (`type = 'astreinte'`) : créneau horaire. Une fois validé, son temps est **toujours** compté en heures supplémentaires (quel que soit le contrat) et chaque créneau d'astreinte compte pour un **déclenchement**. Voir « Compteurs & règles de calcul ».
-- **Pause** (`type = 'pause'`) : créneau horaire, mais **exclu du réalisé** et des plafonds de conformité. Le calcul de conformité ignore purement et simplement les créneaux `pause` (comme `repos`, `conge`, `absence`).
+- **Astreinte** (`astreinte`) : porte des heures. Son temps est **toujours** compté en heures sup, quel que soit le contrat, et le nombre de créneaux d'astreinte validés alimente le compteur de déclenchements (`astreinteDeclenchements`). Voir « Compteurs & règles de calcul ».
+- **Pause** (`pause`) : porte des heures mais n'est **ni** du travail **ni** une occupation prise en compte pour le repos ; elle est ignorée dans le réalisé, les plafonds et les contrôles de conformité.
 
-> Cas particulier : un créneau `recup` porteur d'heures crée (ou met à jour) automatiquement un **mouvement de récupération au débit** tracé (`source = 'recup-shift'`, motif « Récup planifiée ») via `recupService.syncRecupForShift`, appelé à chaque création/mise à jour de créneau.
+## Récup planifiée
 
-## Modèles de créneaux — `ShiftTemplatesManager`
+Poser un créneau `type = recup` avec des heures crée automatiquement un **débit** de récupération lié au créneau (`recupService.syncRecupForShift`, `sens: 'debit'`, motif « Récup planifiée »). Modifier ou supprimer le créneau met à jour ou supprime ce mouvement. À l'inverse, l'attribution d'un **crédit** de récup reste une action **manuelle** du manager (voir « Récupération : règles, attribution & solde »).
 
-Les modèles (`ShiftTemplate`) sont des créneaux nommés réutilisables, gérés par les managers (`planning:write`). Le gestionnaire (replié par défaut) liste les modèles existants et propose un formulaire de création.
+## Modèles de créneaux (`ShiftTemplatesManager`)
 
-| Endpoint | Capacité |
-|---|---|
-| `GET /shift-templates` | lisible par tout profil `planning:write` |
-| `POST /shift-templates` | `planning:write` |
-| `PUT /shift-templates/:id` | `planning:write` |
-| `DELETE /shift-templates/:id` | `planning:write` |
+Un `ShiftTemplate` est un créneau nommé et réutilisable (nom, heures, pause, type, type d'heure, projet, couleur). Le gestionnaire est un CRUD compact, réservé à `planning:write`, replié par défaut. Les modèles servent à :
 
-Champs d'un modèle : `name`, `heureDebut`, `heureFin`, `pauseMin`, `type` (défaut `travail`), `hourTypeId`, `boardId`, `color`. Un modèle s'applique de deux façons : via le sélecteur « Modèle » de `ShiftEditor` (pré-remplit le formulaire), ou en **glissant** une vignette de la barre de modèles sur une case de la vue Semaine, ce qui crée un créneau en **brouillon**.
+- **pré-remplir** un créneau dans `ShiftEditor` (menu « Modèle ») ;
+- être **glissés-déposés** sur une case de la grille Semaine pour créer un brouillon en un geste (`RotaGrid`).
 
 ## Références
 
-- `client/src/components/planning/ShiftEditor.tsx`
-- `client/src/components/planning/ShiftQuickEditor.tsx`
-- `client/src/components/planning/ShiftTemplatesManager.tsx`
-- `client/src/components/planning/shiftMeta.ts`
-- `server/src/services/shift.service.ts`
+- `server/src/services/shift.service.ts` (`create`, `update`, `delete`, `rowToShift`)
 - `server/src/services/shiftTemplate.service.ts`
-- `server/src/services/planning.service.ts` (`publishWeek`)
-- `server/src/services/calc.service.ts` (`shiftWorkedMinutes`)
-- `server/src/routes/shifts.routes.ts`, `server/src/routes/shiftTemplates.routes.ts`
-- `shared/src/types.ts` (`Shift`, `ShiftTemplate`, `ShiftType`, `ShiftStatus`)
+- `server/src/services/calc.service.ts` (`shiftWorkedMinutes`, `shiftAstreinteMinutes`)
+- `server/src/services/recup.service.ts` (`syncRecupForShift`)
+- `server/src/routes/shifts.routes.ts`, `shiftTemplates.routes.ts`
+- `client/src/components/planning/ShiftEditor.tsx`, `ShiftQuickEditor.tsx`, `ShiftTemplatesManager.tsx`, `shiftMeta.ts`

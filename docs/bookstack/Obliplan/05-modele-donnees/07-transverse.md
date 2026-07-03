@@ -19,7 +19,7 @@ Centre de notifications in-app : une ligne par destinataire (le fan-out d'un év
 | `read_at` | timestamptz, nullable | Date de lecture ; `NULL` = non lue. |
 | `created_at` | timestamptz, défaut `now()` | Horodatage. |
 
-Migration : `046_create_notifications.ts`. Voir « Notifications ».
+Migration : `046_create_notifications.ts`. Voir « Notifications : in-app, push & e-mail ».
 
 ## `email_log`
 
@@ -51,7 +51,7 @@ Abonnements Web Push : une ligne par navigateur/appareil ayant opté-in. L'abonn
 | `auth` | text | Secret d'authentification client. |
 | `created_at` | timestamptz, défaut `now()` | Horodatage. |
 
-Migration : `062_create_push_subscriptions.ts`. Voir « Notifications ».
+Migration : `062_create_push_subscriptions.ts`. Voir « Notifications : in-app, push & e-mail ».
 
 ## `audit_log`
 

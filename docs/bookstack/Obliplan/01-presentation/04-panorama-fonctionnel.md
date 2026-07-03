@@ -14,7 +14,7 @@ Sept modules peuvent être **activés ou désactivés par tenant** (tous actifs 
 | `taches` | Tâches | Gestionnaire de tâches (listes, étapes, partage). |
 | `clients` | Clients | Fiches clients rattachées aux projets. |
 
-Tout le reste est **universel** : planning et compteurs, shifts, jours d'école, jours fériés, notifications, calendrier ICS, rapports, tableau de bord, audit, RGPD, todo, équipes, types d'heures, contrats, salariés, permissions.
+Tout le reste est **universel** : planning et compteurs, shifts, jours d'école, jours fériés, notifications, calendrier ICS, rendez-vous, rapports, tableau de bord, audit, RGPD, todo, équipes, types d'heures, contrats, salariés, permissions.
 
 ## Grandes fonctionnalités
 
@@ -28,6 +28,7 @@ Tout le reste est **universel** : planning et compteurs, shifts, jours d'école,
 - **Import de planning** — import CSV en 2 étapes (aperçu + auto-mapping, puis application en brouillons) avec stratégies de fusion (`replace` / `merge` / `add`), garde `planning:write`.
 - **Jours fériés** — jeu national FR global + lignes personnalisées par tenant ; utilisés dans le calcul de l'attendu (lecture par tout utilisateur, écriture `planning:write`).
 - **Calendrier ICS** — flux `.ics` public *token-gated* pour s'abonner à son propre planning depuis un agenda externe ; chaque utilisateur gère son jeton.
+- **Rendez-vous** — page publique de prise de rendez-vous propre à chaque utilisateur (lien *token-gated*, régénérable) avec une boîte de réception des demandes (confirmation / annulation). Personnelle, en libre-service et **universelle** (sans module).
 
 ### Récupération, heures sup & pointage
 
@@ -72,6 +73,7 @@ Tout le reste est **universel** : planning et compteurs, shifts, jours d'école,
 | Import de planning | universel | `planning:write` |
 | Jours fériés | universel | lecture : tout auth · écriture : `planning:write` |
 | Calendrier ICS | universel | `employe` (son propre jeton) |
+| Rendez-vous (prise de RDV) | universel | `employe` (sa propre page) |
 | Récupération (attribution / solde) | `recup` | `recup:manage` |
 | Ma récup | `recup` | `employe` en opt-in, ou manager/admin |
 | Heures supplémentaires (déclaration) | `heures_sup` | `employe` |

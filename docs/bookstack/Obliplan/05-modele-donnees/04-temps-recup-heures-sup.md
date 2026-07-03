@@ -13,9 +13,11 @@ Types d'heures / d'activité paramétrables par tenant (Front, Back, Pause…). 
 | `color` | varchar(9), nullable | Couleur (hex). |
 | `position` | int, défaut `0` | Ordre d'affichage. |
 | `is_active` | bool, défaut `true` | Type actif. |
+| `bookable` | bool, défaut `false` | Le temps travaillé de ce type est proposé comme créneau réservable (module réservation de rendez-vous). |
+| `booking_exclude_projects` | bool, défaut `true` | Si `true`, un créneau de ce type rattaché à un projet n'est **pas** proposé à la réservation. |
 | `created_at` / `updated_at` | timestamptz | Horodatage. |
 
-Migration : `023_create_hour_types.ts`.
+Migrations : `023_create_hour_types.ts`, puis `067` (`bookable`, `booking_exclude_projects`).
 
 ## `time_entries`
 

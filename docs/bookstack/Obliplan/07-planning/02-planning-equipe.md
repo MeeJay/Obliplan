@@ -1,62 +1,63 @@
-Un manager dispose de trois angles de lecture sur le planning de son équipe, plus une vue « qui travaille quand » ouverte à un public plus large. Ces écrans partagent la même donnée hebdomadaire (`getUserWeek` par salarié) mais diffèrent par le niveau de détail exposé et la capacité requise pour y accéder.
+Un manager dispose de plusieurs angles de lecture sur le planning de son équipe, plus une vue « qui travaille quand » ouverte à un public plus large. Ces écrans partagent la même donnée hebdomadaire (`getUserWeek` par salarié) mais diffèrent par le niveau de détail exposé et la capacité requise.
 
-## Les quatre vues et leurs capacités
+## Les vues et leurs capacités
 
 | Vue | Route | Composant | Capacité requise |
-|---|---|---|---|
-| Tableau planning (grille horaire) | `/planning-equipe` | `PlanningBoardPage` | `planning:read_team` |
+| --- | --- | --- | --- |
 | Récap équipe (une ligne par salarié) | `/equipe` | `TeamPage` | `planning:read_team` |
-| Charge | `/charge` | `WorkloadPage` | `planning:read_team` |
-| Vue équipe (lecture seule) | `/vue-equipe` | `TeamOverviewPage` | `planning:view_team` |
+| Tableau planning (grille horaire / rota) | `/planning-equipe` | `PlanningBoardPage` | `planning:read_team` |
+| Vue d'ensemble (lecture seule) | `/vue-equipe` | `TeamOverviewPage` | `planning:view_team` |
 
-Les trois premières partagent une sous-navigation par onglets (`PlanningTabs` : Grille, Récap, Charge). La vue équipe en lecture seule est distincte et volontairement plus ouverte.
+Les onglets `PlanningTabs` relient la **Grille** (`/planning-equipe`), le **Récap** (`/equipe`) et la **Charge** (`/charge`). La navigation latérale expose « Planning équipe » sous la capacité `planning:read_team`.
 
-> Portée des lignes : `getTeamWeek` distingue le rôle. Un **admin** voit l'ensemble du tenant ; un **manager** ne voit que ses subordonnés directs (`userService.getTeam`). La capacité `planning:read_team` autorise l'accès à la vue ; le périmètre des salariés listés dépend du rôle.
+> `planning:read_team` donne accès aux compteurs, écarts et drapeaux de conformité de chaque salarié. `planning:view_team` n'ouvre que la vue d'ensemble anonymisée (créneaux validés, sans compteur ni note). Cette dernière est semée par défaut à l'administrateur, au manager **et** au salarié.
 
-## Récap équipe — `/equipe` (`TeamPage`)
+## Portée des données (manager vs admin)
 
-Endpoint : `GET /planning/team?week=YYYY-MM-DD`. Chaque salarié occupe **une ligne** (une carte). L'en-tête affiche la pastille et le libellé de son contrat, puis ses compteurs de la semaine : `réalisé / attendu`, l'écart signé, les badges « sup » et « récup » s'ils sont non nuls, et le **solde de récupération** (`recupSoldeMin`). Le corps affiche les drapeaux de conformité (`ComplianceFlags`) et la grille des sept jours (`WeekTable`).
+Le service `getTeamWeek` sélectionne les membres selon le rôle : un **admin** voit tout le tenant (`getByTenant`), un **manager** voit ses subordonnés directs (`getTeam`). Chaque salarié produit **une seule ligne** par employé (jamais dupliquée par équipe), enrichie des `teamIds` (équipes Axis-C `user_teams`) pour permettre le filtrage.
 
-- Si l'utilisateur détient `planning:write`, la grille devient **éditable** (bouton d'ajout par jour, clic pour éditer, ouverture de `ShiftEditor`), le gestionnaire de **modèles** (`ShiftTemplatesManager`) s'affiche, et le bouton « Dupliquer la semaine préc. » clone la semaine précédente en brouillons.
-- Sans `planning:write`, la vue reste en lecture.
+## Récap équipe (`/equipe`, `TeamPage`)
 
-## Vue équipe — `/vue-equipe` (`TeamOverviewPage`)
+Endpoint : `GET /planning/team?monday=YYYY-MM-DD` (`planningApi.team`). Une carte par salarié, avec :
 
-Endpoint : `GET /planning/team-overview?week=YYYY-MM-DD` (`getTeamOverview`). C'est une projection **« qui travaille quand »** de **tous les salariés actifs** du tenant, sous forme de tableau (colonne « Salarié » + sept jours). Elle est délibérément **non interactive** : pas d'ajout, pas de glisser-déposer, pas de clic pour éditer.
+- le **contrat** (pastille de couleur + libellé) ;
+- le résumé chiffré : `réalisé / attendu`, écart, badges « sup » et « récup », et le **solde récup** (`recupSoldeMin`) ;
+- les **drapeaux de conformité** (`ComplianceFlags`) ;
+- la table hebdomadaire (`WeekTable`) rendue en mode `editable` si l'utilisateur possède `planning:write`.
 
-Confidentialité forte, appliquée côté serveur :
+Le bouton **Dupliquer la semaine précédente** (visible avec `planning:write`) clone les créneaux de la semaine `-7 jours` en brouillon, pour les seuls salariés actuellement visibles (`planningApi.copyWeek`). Le gestionnaire de **modèles de créneaux** (`ShiftTemplatesManager`) n'apparaît qu'avec `planning:write`.
 
-- seuls les créneaux **validés** (`statut = 'valide'`) sont renvoyés — les brouillons ne sont jamais interrogés ;
-- la **note** libre de chaque créneau est retirée (`note: null`) ;
-- **aucun compteur**, aucun écart, aucun drapeau de conformité n'est exposé — uniquement les horaires, le type et le type d'heure.
+## Tableau planning (`/planning-equipe`, `PlanningBoardPage`)
 
-Les jours fériés de la semaine sont fournis au niveau du tenant, comme marqueur visuel.
+Même endpoint `GET /planning/team`. Deux modes d'affichage :
 
-## Tableau planning — `/planning-equipe` (`PlanningBoardPage`)
+- **Grille horaire** (`HourGrid`) : chaque salarié en ligne, une trame horaire configurable (bornes `Heures` début → fin, mémorisées en `localStorage`). Portée **Semaine** ou **Mois** (4 semaines empilées, chargées via 4 appels `planningApi.team`).
+- **Semaine** (`RotaGrid`) : grille jour × salarié, glisser-déposer d'un créneau ou d'un **modèle**.
 
-Écran de travail du planning. Il propose deux modes d'affichage :
+Actions réservées à `planning:write` : dessin d'un créneau (`shiftApi.create`, type `travail`, statut `brouillon`), redimensionnement/déplacement (`shiftApi.update`), copier/coller d'une journée ou d'une sélection (`planningApi.cloneShifts`), suppression multiple, **duplication** de la semaine précédente, **import CSV** (bouton vers `/import-planning`) et **publication**.
 
-- **Grille horaire** (`HourGrid`) : chaque créneau se dessine sur une trame d'heures paramétrable (plage `Heures` début → fin, mémorisée). Portée « Semaine » ou « Mois » (4 semaines empilées).
-- **Semaine** (`RotaGrid`) : une case par jour et par salarié, avec glisser-déposer de créneaux et de modèles.
+La **publication** (`planningApi.publish`, `POST /planning/publish`) bascule tous les brouillons des semaines et salariés visibles en `valide` et notifie chaque salarié concerné. Le bouton affiche le nombre de brouillons en attente (`Publier (N)`).
 
-Les actions d'écriture (dessin, création, déplacement, redimensionnement, publication, duplication, import, copier/coller, sélection multiple, suppression) ne sont proposées que si l'utilisateur possède `planning:write` (`canWrite`). Un lecteur `planning:read_team` sans `planning:write` consulte la grille sans pouvoir la modifier. La **publication** d'une semaine et l'**import CSV** sont détaillés respectivement dans « Édition des shifts, modèles & validation » et « Import de planning, vues & calendrier ICS ».
+## Vue d'ensemble (`/vue-equipe`, `TeamOverviewPage`)
+
+Endpoint : `GET /planning/team-overview?monday=YYYY-MM-DD` (`planningApi.teamOverview`), capacité `planning:view_team`. Vue **délibérément non interactive** : ni ajout, ni glisser, ni clic d'édition.
+
+Confidentialité (imposée côté serveur par `getTeamOverview`) :
+
+- seuls les créneaux **validés** (`statut='valide'`) sont exposés — les brouillons ne sont jamais requêtés ;
+- la **note** en texte libre est retirée de chaque créneau ;
+- **aucun** compteur, écart ni drapeau de conformité n'est exposé — uniquement l'horaire + le type + le type d'heure ;
+- les rendez-vous apparaissent **anonymisés** (bloc « Rendez-vous » sans nom ni e-mail).
+
+Les membres sont triés par nom d'affichage (`displayName ?? username`).
 
 ## Filtrer par équipe
 
-Les trois écrans (`TeamPage`, `TeamOverviewPage`, `PlanningBoardPage`) partagent le filtre `PlanningTeamFilter`, qui masque/affiche les lignes par **équipe Axis-C** (`user_teams`). La sélection est mémorisée dans le navigateur (clé `localStorage` `obliplan.planning.visibleTeams`). La visibilité est en **OU** : un salarié appartenant à au moins une équipe visible reste affiché (une seule ligne par salarié, jamais dupliquée). Une sélection vide signifie « toutes les équipes ». Les identifiants d'équipe de chaque salarié proviennent de `teamIdsByUser` (champ `teamIds`). Les presets nommés de ce filtre sont décrits dans « Import de planning, vues & calendrier ICS ».
-
-## Lire les shifts et compteurs de chaque salarié
-
-`getTeamWeek` renvoie, pour chaque salarié, le même objet `UserWeek` que la vue personnelle : `shifts`, `counter` (compteur hebdomadaire complet), `recupSoldeMin`, `flags`, `boards`, `hourTypes`, `holidays` et `teamIds`. Le récap (`/equipe`) et la grille (`/planning-equipe`) exploitent ces compteurs ; la vue lecture seule (`/vue-equipe`), non.
+Toutes ces vues partagent le composant `PlanningTeamFilter` : des puces d'équipes (Axis-C `user_teams`) permettent de restreindre l'affichage. Le filtre est en **OU** (une ligne reste visible si elle appartient à au moins une équipe cochée) et n'entraîne jamais de duplication de ligne. La sélection est persistée en `localStorage` (clé `obliplan.planning.visibleTeams`) ; un id d'équipe absent de la vue courante est ignoré pour ne pas vider la liste. Les **vues** enregistrées (presets d'équipes) sont décrites dans « Import de planning, vues & calendrier ICS ».
 
 ## Références
 
-- `client/src/pages/TeamPage.tsx`
-- `client/src/pages/TeamOverviewPage.tsx`
-- `client/src/pages/PlanningBoardPage.tsx`
-- `client/src/components/planning/PlanningTabs.tsx`
-- `client/src/components/planning/PlanningTeamFilter.tsx`
-- `server/src/services/planning.service.ts` (`getTeamWeek`, `getTeamOverview`, `teamIdsByUser`)
-- `server/src/controllers/planning.controller.ts` (`team`, `teamOverview`)
+- `server/src/services/planning.service.ts` (`getTeamWeek`, `getTeamOverview`, `teamIdsByUser`, `publishWeek`, `copyWeek`, `cloneShifts`)
 - `server/src/routes/planning.routes.ts`
-- `shared/src/permissions.ts`, `shared/src/types.ts` (`TeamOverviewDTO`)
+- `client/src/pages/TeamPage.tsx`, `PlanningBoardPage.tsx`, `TeamOverviewPage.tsx`
+- `client/src/components/planning/PlanningTabs.tsx`, `PlanningTeamFilter.tsx`, `HourGrid.tsx`, `RotaGrid.tsx`

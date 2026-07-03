@@ -5,96 +5,86 @@ Cette page couvre trois fonctions périphériques du planning : l'**import CSV**
 Écran `/import-planning` (`ImportPlanningPage`), service `planningImport.service`, capacité **`planning:write`**. L'import se fait en **deux étapes** — aperçu puis application — pour ne jamais écrire à l'aveugle.
 
 | Étape | Endpoint | Capacité |
-|---|---|---|
-| Aperçu (détection + auto-mapping) | `POST /planning/import/preview` | `planning:write` |
+| --- | --- | --- |
+| Aperçu (analyse + auto-mapping) | `POST /planning/import/preview` | `planning:write` |
 | Application (création des créneaux) | `POST /planning/import/apply` | `planning:write` |
 
 ### Format attendu
 
-Le fichier est un tableur **délimité par « ; »** avec des **blocs de semaine répétés** :
+Le fichier est un tableur délimité par `;`, avec des **blocs de semaine répétés** :
 
-1. une ligne d'en-tête de jours (`Lundi JJ/MM`, `Mardi JJ/MM`, … — au moins 3 jours détectés) ;
-2. une ligne de créneaux horaires (`8h-9h`, `9h-10h`, … — **12 créneaux par jour**) ;
-3. des **bandes de salariés** : une bande démarre sur une ligne dont la première cellule (le nom) est non vide et n'est pas un en-tête de jour, et court jusqu'à la bande suivante.
+1. une ligne d'en-tête de jours (`Lundi JJ/MM … Dimanche JJ/MM`) — un bloc est détecté dès qu'une ligne porte au moins **3** en-têtes de jour ;
+2. une ligne de créneaux horaires (`8h-9h … 19h-20h`, **12 créneaux** par jour) ;
+3. des « bandes » de salariés : une bande démarre sur une ligne dont la première colonne (le nom) n'est pas vide et s'étend jusqu'au nom suivant.
 
-Le format empile une couche « site » et une couche « tâche » : pour chaque créneau, la **dernière valeur non vide** de la bande l'emporte (la tâche prime sur le site). Les créneaux consécutifs identiques sont **fusionnés** en un seul shift. Les dates `JJ/MM` ne portent pas d'année : l'utilisateur la saisit à l'application. Côté client, le fichier est décodé en **windows-1252** (exports Excel français) pour préserver les accents.
+Par créneau, la **dernière valeur non vide** de la bande est retenue (la couche « tâche » l'emporte sur la couche « site »). Les créneaux consécutifs identiques sont **fusionnés** en un seul shift. Les dates du fichier (`JJ/MM`) ne portent pas d'année : l'utilisateur la fournit à l'application.
 
-### Mapping (aperçu)
+> Le client décode l'export en **windows-1252** (exports Excel français) pour préserver les accents.
 
-L'aperçu renvoie `weekLabels`, `employees`, `labels`, `totalShifts`, un `sample` et des `warnings`.
+### Mapping et suggestions
 
-- **Salariés** : chaque nom du CSV est rapproché d'un compte par correspondance floue — (1) égalité normalisée, (2) tous les jetons du CSV contenus dans un candidat, (3) même premier jeton. Une correspondance n'est **auto-suggérée que si un seul candidat** qualifie ; un nom ambigu reste à associer à la main (ou à laisser de côté).
-- **Activités** → mappées vers une action (`ImportLabelAction`) :
+L'aperçu renvoie les semaines détectées, les salariés, les libellés d'activité et un échantillon :
 
-| Action | Effet |
-|---|---|
-| `hourtype` | Créneau **travaillé** (`travail`) avec un type d'heure (existant ou **créé** depuis le libellé) |
-| `ignore` | Ignoré (ex. « Off », bruit, URL) |
-| `pause` | Créneau `pause` (avec heures, exclu du réalisé/plafonds) |
-| `repos` | Créneau `repos` |
-| `conge` | Créneau `conge` |
-| `absence` | Créneau `absence` |
-| `ecole` | Créneau `ecole` |
+- **Salariés → utilisateurs** : rapprochement flou (`matchUserId`) — correspondance exacte du nom normalisé, puis tous les tokens du nom CSV contenus dans un candidat, puis même premier token. Une correspondance n'est proposée que si **exactement un** candidat qualifie ; sinon le salarié reste à associer à la main.
+- **Libellés → actions** (`suggestLabel`) : `ignore` (URL, bruit, « Off »), `conge` (préfixe « conge »), `absence` (« maladie »), `ecole` (« ecole »), `pause` (préfixe « pause »), sinon `hourtype` (type d'heure existant réutilisé par libellé, ou créé depuis le libellé).
 
-Suggestions par défaut (`suggestLabel`) : une URL ou un libellé trop court → `ignore` ; `off` → `ignore` ; commence par `conge` → `conge` ; `maladie` → `absence` ; `ecole` → `ecole` ; commence par `pause` → `pause` ; sinon un type d'heure existant du même libellé, ou création. Une action `hourtype` peut aussi porter un **projet** libre (`projectName`) : le board est réutilisé par nom (insensible à la casse) ou créé à la volée, avec un `clientId` optionnel.
+Actions disponibles dans l'écran (`ImportLabelAction`) : `hourtype` (travail), `pause`, `repos`, `conge`, `absence`, `ecole`, `ignore`. Un libellé mappé en `hourtype` peut recevoir un **projet** libre (`projectName`) : le board est réutilisé par nom (insensible à la casse) ou créé à la volée, avec un **client** optionnel pour un board réellement créé.
 
-### Application
+### Validation et modes d'application
 
-Le corps (`ImportApplyRequest`) porte `csvText`, `year`, `employeeMap` (csvName → userId ou null), `labelMap` (label → mapping), `statut` (défaut **`brouillon`**) et `mode`. Les créneaux sont créés en **brouillon** par défaut : rien n'est publié sans revue.
+L'autorisation n'est **jamais** déléguée au client : à l'application, une cible n'est importable que si elle est **membre du tenant** ET que l'acteur peut la gérer (admin → tout membre ; manager → ses subordonnés ; ou soi-même). Les salariés hors périmètre sont ignorés et listés dans les avertissements.
 
-**Autorisation** (jamais la carte cliente n'est crue) : une cible n'est importable que si elle est **membre du tenant** ET que l'acteur peut la gérer (admin → tout membre, manager → ses subordonnés, ou soi-même). Les noms hors périmètre sont ignorés et signalés.
+Les créneaux sont créés en **brouillon** par défaut (`statut`). Trois modes de combinaison avec l'existant (`ImportMergeMode`) :
 
-Trois **modes** combinent l'import avec l'existant sur chaque couple (salarié, jour) touché :
-
-| Mode | Comportement |
-|---|---|
+| Mode | Effet |
+| --- | --- |
 | `replace` (défaut) | Vide les journées touchées, puis pose l'import à la place |
-| `merge` | Conserve l'existant mais **rogne/découpe** les créneaux chevauchés (l'import gagne) |
-| `add` | Cumule tout, ne supprime ni ne fusionne (seuls les doublons exacts sont ignorés) |
+| `merge` | Conserve l'existant mais **rogne/découpe** les créneaux qui chevauchent un créneau importé (l'import gagne le recouvrement) |
+| `add` | Cumule tout sans rien supprimer (seuls les doublons exacts `début/fin` sont ignorés) |
 
-Le résultat (`ImportApplyResult`) rapporte `createdShifts`, `createdHourTypes`, `createdBoards`, `skipped`, `deletedShifts`, `trimmedShifts`, un détail `perEmployee` et des `warnings`. Après import, on va sur le tableau d'équipe pour vérifier puis **publier** (voir « Édition des shifts, modèles & validation »).
+Le résultat (`ImportApplyResult`) rapporte : `createdShifts`, `createdHourTypes`, `createdBoards`, `skipped`, `deletedShifts`, `trimmedShifts`, et un détail par salarié. L'écran invite ensuite à aller **publier** les brouillons depuis le tableau d'équipe.
 
 ## Vues de planning personnalisées
 
-Les **vues** (`planning_views`, `planningView.service`) sont des **presets par utilisateur** des équipes visibles dans les grilles d'équipe. Une vue appartient à **un seul utilisateur** au sein d'**un seul tenant** ; `teamIds` liste les équipes Axis-C (`user_teams`) gardées visibles, et un tableau **vide** signifie « toutes les équipes ».
+Les **vues** (`planning_views`, `planningView.service`) sont des presets **par utilisateur** d'équipes visibles pour les grilles d'équipe. Gérées sous la capacité **`planning:view_team`**.
 
-| Endpoint | Rôle | Capacité |
-|---|---|---|
-| `GET /planning/views` | Lister ses propres vues (triées par nom) | `planning:view_team` |
-| `POST /planning/views` | Créer une vue | `planning:view_team` |
-| `PUT /planning/views/:id` | Modifier une vue (owner-scoped) | `planning:view_team` |
-| `DELETE /planning/views/:id` | Supprimer une vue | `planning:view_team` |
+| Action | Endpoint |
+| --- | --- |
+| Lister mes vues | `GET /planning/views` |
+| Créer | `POST /planning/views` |
+| Modifier | `PUT /planning/views/:id` |
+| Supprimer | `DELETE /planning/views/:id` |
 
-Règles de validation (`sanitizeInput`) : le nom est **obligatoire**, découpé à **80 caractères** ; les `teamIds` sont dédupliqués et doivent tous appartenir aux `user_teams` **du tenant** (sinon 400). L'unicité `(tenant, utilisateur, nom)` est garantie en base (conflit → 409). Le filtre d'équipe interactif (état courant) est par ailleurs mémorisé dans le navigateur (`localStorage`), comme décrit dans « Planning & grille équipe (manager) ».
+Une vue (`PlanningView`) porte un `name` et une liste `teamIds` (ids d'équipes Axis-C `user_teams`). Règles (`sanitizeInput`) : nom obligatoire, borné à 80 caractères ; `teamIds` dédupliqués et **restreints aux équipes du tenant** (sinon 400) ; une liste **vide** signifie « toutes les équipes » (aucun filtre). Les vues sont strictement **owner-scopées** (tenant + utilisateur). Les équipes disponibles pour construire une vue sont listées via `GET /planning/teams` (capacité `planning:view_team`).
 
 ## Abonnement calendrier ICS
 
-`ics.service` publie un **flux iCalendar public, gaté par jeton**, qu'un client d'agenda peut interroger en continu. Le jeton (`users.ics_token`) est **le seul secret** et ne résout qu'au **propre planning** de son porteur.
+`ics.service.ts` expose un **flux iCalendar public** que l'on ajoute à un client d'agenda pour suivre son planning. Le flux est **token-gaté** : le jeton (`users.ics_token`) est le seul secret et résout vers **un seul** utilisateur — son propre planning.
 
 | Endpoint | Auth | Rôle |
-|---|---|---|
-| `GET /api/ics/:token(.ics)` | **Aucune** (public) | Émet le flux du porteur du jeton |
-| `GET /api/ics/me` | Authentifié | Garantit un jeton et renvoie l'URL d'abonnement |
-| `POST /api/ics/regenerate` | Authentifié | **Régénère** le jeton (l'ancienne URL cesse de fonctionner) |
+| --- | --- | --- |
+| `GET /api/ics/:token(.ics)` | **publique** (aucune auth/tenant) | Renvoie le flux `text/calendar` du propriétaire du jeton ; jeton inconnu → 404 texte |
+| `GET /ics/me` | authentifiée | Garantit un jeton (le crée si absent) et renvoie l'URL d'abonnement |
+| `POST /ics/regenerate` | authentifiée | **Régénère** le jeton (l'ancienne URL cesse de fonctionner) |
 
-Le flux public est monté globalement, **avant** le routeur authentifié, et les mots réservés `me` et `regenerate` sont laissés passer pour ne pas être avalés comme des jetons. Un jeton inconnu renvoie un **404** en texte brut. L'URL d'abonnement a la forme `{appUrl}/api/ics/{token}.ics`.
+L'utilisateur gère son propre jeton depuis sa page **Profil** (`ProfilePage`, carte « Abonnement calendrier (ICS) ») : elle affiche l'URL, propose un lien `webcal://` et un bouton de **régénération**.
 
 ### Ce qui est exporté
 
-Fenêtre exposée relative à aujourd'hui : **`[today − 31 jours, today + 92 jours)`**, restreinte au **tenant d'origine** du porteur (`users.tenant_id`).
+Fenêtre exposée : `[aujourd'hui − 31 j, aujourd'hui + 92 j)`, scopée au tenant d'origine de l'utilisateur. Le flux contient uniquement **ses** données :
 
-- **Créneaux** : uniquement les types **horodatés `travail` et `astreinte`**, au statut **`valide`**, avec heures de début et de fin. Chaque créneau devient un `VEVENT` horaire ; le `SUMMARY` reprend le libellé du type d'heure, sinon le libellé du type de créneau ; la note éventuelle alimente la `DESCRIPTION`.
-- **Congés** : demandes de congé au statut `valide`, en événements **journée entière** (`DTEND` exclusif = fin + 1 jour) ; un congé d'une seule journée en matin/après-midi est annoté en conséquence.
-- Si aucun créneau ni congé n'existe dans la fenêtre, un événement **transparent** de repère est ajouté pour que le client accepte le flux (RFC 5545 exige au moins un composant).
+- les créneaux **validés** de type **`travail`** ou **`astreinte`** (les seuls types temporisés retenus, `TIMED_TYPES`), en `VEVENT` horaires ; le titre reprend le libellé du type d'heure si présent, sinon le libellé du type ;
+- les **congés approuvés**, en `VEVENT` toute la journée (avec mention « matin »/« après-midi » pour une demi-journée) ;
+- les **rendez-vous** réservés (confirmés → `CONFIRMED`, en attente → `TENTATIVE`), avec le demandeur externe en `ATTENDEE`.
 
-Le corps respecte le pliage de lignes RFC 5545 et est encodé en UTF-8. Régénérer le jeton **invalide** immédiatement l'URL précédente.
+Un abonné **sans** aucune donnée dans la fenêtre reçoit un événement d'ancrage transparent (`TRANSP:TRANSPARENT`) pour que les clients acceptent le flux (RFC 5545 exige au moins un composant). Les lignes sont pliées à 75 octets (accents/emoji multi-octets gérés). Les créneaux non validés, les autres types de créneau et les données d'autres utilisateurs ne sont **jamais** exposés.
 
-> Renvoi : le détail du flux et de sa mise en place technique est documenté dans « API ICS ».
+Le détail technique du flux (VEVENT, encodage, en-têtes HTTP) est décrit dans la page « Planning, shifts, modèles, jours d'école & fériés ».
 
 ## Références
 
-- `client/src/pages/ImportPlanningPage.tsx`
 - `server/src/services/planningImport.service.ts`, `shared/src/planningImport.ts`
 - `server/src/services/planningView.service.ts`, `shared/src/planningViews.ts`
 - `server/src/services/ics.service.ts`, `server/src/controllers/ics.controller.ts`, `server/src/routes/ics.routes.ts`
-- `server/src/routes/planning.routes.ts`, `server/src/routes/index.ts`
+- `server/src/routes/planning.routes.ts`
+- `client/src/pages/ImportPlanningPage.tsx`, `client/src/pages/ProfilePage.tsx`

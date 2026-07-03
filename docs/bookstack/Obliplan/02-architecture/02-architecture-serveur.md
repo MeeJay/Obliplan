@@ -30,6 +30,7 @@ Montées directement, sans `requireTenant` :
 | `/api/admin/config` | About / passerelle Obligate / SMTP |
 | `/api/permission-sets` | matrice de permissions (globale) |
 | `/api/ics` (public) | flux calendrier **public**, gardé par token, sans auth ni tenant |
+| `/api/public/booking` (public) | prise de rendez-vous **publique**, gardée par token, sans auth ni tenant |
 
 ### Gestion des tenants (`requireAuth`, sans `requireTenant`)
 

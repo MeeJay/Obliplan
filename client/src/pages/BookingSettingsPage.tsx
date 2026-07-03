@@ -45,6 +45,21 @@ export function BookingSettingsPage() {
     setCfg((c) => (c ? { ...c, [key]: value } : c));
   }
 
+  /** Publish / unpublish persists IMMEDIATELY (no "Enregistrer" needed) so a checked box
+   *  always matches the live public page. Only the isActive flag is sent; other in-progress
+   *  edits in the form are preserved locally. */
+  async function togglePublish(next: boolean) {
+    patch('isActive', next); // optimistic
+    try {
+      const updated = await bookingApi.update({ isActive: next });
+      setCfg((c) => (c ? { ...c, isActive: updated.isActive } : updated));
+      toast.success(next ? 'Page publiée' : 'Page dépubliée');
+    } catch {
+      patch('isActive', !next); // revert on failure
+      toast.error("Échec de la publication");
+    }
+  }
+
   async function save() {
     if (!cfg) return;
     setSaving(true);
@@ -119,9 +134,16 @@ export function BookingSettingsPage() {
               type="checkbox"
               className="h-4 w-4"
               checked={cfg.isActive}
-              onChange={(e) => patch('isActive', e.target.checked)}
+              onChange={(e) => void togglePublish(e.target.checked)}
             />
             <span className="text-sm font-medium text-text-primary">Page de réservation publiée</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                cfg.isActive ? 'bg-status-up/15 text-status-up' : 'bg-bg-tertiary text-text-muted'
+              }`}
+            >
+              {cfg.isActive ? 'En ligne' : 'Hors ligne'}
+            </span>
           </label>
 
           <div className="space-y-1.5">

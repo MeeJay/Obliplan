@@ -1,11 +1,11 @@
-Chaque workspace (tenant) peut activer ou désactiver un sous-ensemble de **modules fonctionnels**. Le catalogue est figé dans `shared/src/modules.ts` ; l'état d'activation est stocké par workspace dans la table `tenant_modules`. Le principe est **tout-activé-par-défaut** : un workspace sans ligne a tous ses modules actifs.
+Chaque workspace (tenant) peut activer ou désactiver un sous-ensemble de **modules fonctionnels**. Le catalogue est figé dans `shared/src/modules.ts` ; l'état d'activation est stocké par workspace dans la table `tenant_modules` (colonne `module_key`). Le principe est **tout-activé-par-défaut** : un workspace sans ligne a tous ses modules actifs.
 
 ## Catalogue des modules
 
-Les clés (`ModuleKey`) sont fixes et reflètent la colonne `module_key` de `tenant_modules`.
+Le catalogue `MODULES` définit sept modules. Les clés (`module_key`) sont figées.
 
-| Slug (`module_key`) | Libellé |
-|---|---|
+| Slug (`ModuleKey`) | Libellé |
+|--------------------|---------|
 | `conges` | Congés |
 | `heures_sup` | Heures sup |
 | `recup` | Récupération |
@@ -14,64 +14,52 @@ Les clés (`ModuleKey`) sont fixes et reflètent la colonne `module_key` de `ten
 | `temps` | Suivi du temps |
 | `clients` | Clients |
 
-## Stockage et logique par défaut
+`isModuleKey(key)` valide qu'une chaîne appartient bien au catalogue.
 
-```sql
-CREATE TABLE tenant_modules (
-  id         SERIAL PRIMARY KEY,
-  tenant_id  INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  module_key VARCHAR(32) NOT NULL,
-  enabled    BOOLEAN NOT NULL DEFAULT true,
-  ...
-  UNIQUE (tenant_id, module_key)
-);
-```
+## Effet de l'activation / désactivation
 
-`tenantModuleService.getEnabled()` part de la liste complète `MODULE_KEYS` et **retire** uniquement les modules ayant une ligne explicite `enabled = false`. Autrement dit, un module est actif tant qu'aucune ligne ne le désactive (`isEnabled` renvoie `true` par défaut). Basculer un module fait un upsert sur `(tenant_id, module_key)`.
+Désactiver un module a deux effets complémentaires.
 
-## Effet d'activation / désactivation
+- **Gate serveur** — le middleware `requireModule(key)` protège les familles de routes concernées. Monté après `requireAuth` + `requireTenant`, il renvoie `403 « Module désactivé pour ce workspace »` quand la clé est désactivée pour le tenant actif. Le service `tenantModuleService.isEnabled` est **default-on** : sans ligne explicite `enabled=false`, le module est considéré actif.
+- **Affichage client** — les modules actifs du tenant courant sont exposés par la session ; la barre latérale masque les entrées dont le module est désactivé. Lorsqu'on modifie le workspace actif, le store est resynchronisé pour que la barre latérale reflète immédiatement le changement.
 
-Désactiver un module a un double effet :
+`tenantModuleService.getEnabled(tenantId)` renvoie la liste des clés actives en partant du catalogue et en retirant celles dont une ligne porte `enabled=false`.
 
-- **Gate serveur** — le middleware `requireModule(key)` protège les routes concernées. Appliqué après `requireAuth` + `requireTenant`, il renvoie `403 Module désactivé pour ce workspace` quand la clé est désactivée pour le tenant actif (et `400 No tenant selected` s'il n'y a pas de tenant).
-- **Affichage client** — la SPA charge la liste des modules actifs et masque les entrées de navigation correspondantes ; l'état est tenu à jour dans le store lorsqu'on édite le workspace courant.
+## Qui peut modifier
 
-### Modules → fonctionnalité → routes gardées
+Deux surfaces distinctes pilotent l'activation :
+
+| Contexte | Endpoint | Garde | Portée |
+|----------|----------|-------|--------|
+| Workspace **actif** | `GET /modules` | (lecture) | Modules actifs du tenant courant |
+| Workspace **actif** | `PATCH /modules` | `requireTenantCapability('tenants:manage')` | Bascule une clé sur le tenant courant |
+| Workspace **arbitraire** | `GET /tenants/:id/modules` | `requirePlatformAdmin()` | Lire les modules d'un tenant ciblé |
+| Workspace **arbitraire** | `PATCH /tenants/:id/modules` | `requirePlatformAdmin()` | Bascule une clé sur un tenant ciblé |
+
+L'écran **Espaces de travail** (`/workspaces`, `WorkspacesPage`, platform admin) utilise les routes `/tenants/:id/modules` : c'est une opération inter-tenants (elle vise n'importe quel tenant), donc réservée au platform admin. La bascule par clé fait un upsert dans `tenant_modules` (`onConflict(['tenant_id','module_key']).merge({ enabled })`).
+
+## Module → fonctionnalité → routes gardées
 
 Le montage des routes (`server/src/routes/index.ts`) applique `requireModule(...)` sur les familles suivantes :
 
 | Module | Fonctionnalité | Routes gardées (`requireModule`) |
-|---|---|---|
-| `recup` | Récupération | `/api/recup` |
-| `projets` | Tableaux (Kanban/Scrum) | `/api/boards` |
-| `conges` | Congés & absences | `/api/leave` |
-| `clients` | Clients | `/api/clients` |
-| `temps` | Suivi du temps | `/api/time-entries` |
-| `heures_sup` | Heures supplémentaires | `/api/overtime` |
-| `taches` | Tâches | `/api/task-lists`, `/api/tasks` |
+|--------|----------------|----------------------------------|
+| `recup` | Récupération | `/recup` |
+| `projets` | Tableaux / boards Kanban-Scrum | `/boards` |
+| `conges` | Congés | `/leave` |
+| `clients` | Clients | `/clients` |
+| `temps` | Suivi du temps | `/time-entries` |
+| `heures_sup` | Heures supplémentaires | `/overtime` |
+| `taches` | Listes et tâches | `/task-lists`, `/tasks` |
 
-> Certaines familles ne sont **jamais** gardées par un module car elles sont universelles : planning, salariés, contrats, shifts, jours fériés, notifications, tableau de bord, équipes, types d'heures.
-
-## Qui peut modifier l'activation
-
-Deux surfaces distinctes existent, avec des gardes différentes :
-
-| Portée | Endpoint | Garde | Écran |
-|---|---|---|---|
-| Workspace **actif** | `GET /api/modules` | `requireAuth` + `requireTenant` | (lecture, tout membre) |
-| Workspace **actif** | `PATCH /api/modules` | capacité `tenants:manage` | — |
-| Workspace **arbitraire** | `GET /api/tenants/:id/modules` | `requirePlatformAdmin` | Espaces de travail |
-| Workspace **arbitraire** | `PATCH /api/tenants/:id/modules` | `requirePlatformAdmin` | Espaces de travail |
-
-L'écran **Espaces de travail** (`/workspaces`, réservé à l'administrateur plateforme) permet d'activer/désactiver les modules de **n'importe quel** workspace : c'est une opération transverse, d'où la garde `requirePlatformAdmin`. La bascule sur le workspace **actif** via `/api/modules` requiert, elle, la capacité de tenant `tenants:manage`. Le corps attendu par un `PATCH` est `{ key, enabled }` ; une clé hors catalogue renvoie `400 Module inconnu`.
+> **Modules sans gate.** `MODULES` liste sept clés, mais toutes ne conditionnent pas une famille de routes distincte. Certaines routes restent universelles (non gardées par un module), par exemple `/holidays` (jours fériés), `/notifications`, `/dashboard`, ainsi que `/todos` (todo simple), `/planning`, `/shifts` et l'administration (`/users`, `/contrats`, `/modules`).
 
 ## Références
 
 - `shared/src/modules.ts` (`MODULES`, `MODULE_KEYS`, `isModuleKey`)
 - `server/src/services/tenantModule.service.ts`
-- `server/src/controllers/tenantModule.controller.ts`
 - `server/src/routes/tenantModules.routes.ts`
+- `server/src/routes/index.ts` (montage `requireModule`)
 - `server/src/middleware/module.ts` (`requireModule`)
-- `server/src/routes/index.ts` (montage des gates)
-- `server/src/db/migrations/040_create_tenant_modules.ts`
 - `client/src/pages/WorkspacesPage.tsx`
+- `client/src/api/index.ts` (`moduleApi`)

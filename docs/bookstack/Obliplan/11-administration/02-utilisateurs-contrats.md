@@ -1,92 +1,108 @@
-Les salariés et les contrats se gèrent depuis deux écrans d'administration du tenant : **Salariés** (`/utilisateurs`, `UsersPage`) et **Contrats** (`/contrats`, `ContratsPage`). Les deux routes sont réservées au rôle `admin` du tenant côté front (`ProtectedRoute requiredRole="admin"`) ; côté serveur, chaque action de modification est en plus gardée par une capacité précise.
+Les salariés et les contrats se gèrent depuis deux écrans d'administration du tenant : **Salariés** (`/utilisateurs`, `UsersPage`) et **Contrats** (`/contrats`, `ContratsPage`). Les deux routes sont réservées au rôle `admin` du tenant côté client (`ProtectedRoute requiredRole="admin"`) ; côté serveur, chaque écriture est gardée par une capacité précise.
 
-## Salariés
+## Salariés (`/utilisateurs`)
 
-L'écran liste les membres du workspace (scopés par la table d'appartenance `user_tenants`, pas par le tenant d'origine). Un manager n'y voit que ses subordonnés directs ; un administrateur voit tout le tenant.
+L'écran liste les membres du tenant (résolus par la table d'appartenance `user_tenants`, et non par le tenant d'origine `users.tenant_id`) et permet de créer et d'éditer un salarié. La colonne « Actions » et les commandes d'édition ne sont visibles que si la capacité `users:manage` est accordée (`can('users:manage')`).
+
+### Endpoints
+
+| Méthode | Route | Garde | Rôle |
+|---------|-------|-------|------|
+| `GET` | `/users` | `requireManager()` | Liste des membres du tenant |
+| `POST` | `/users` | `requireTenantCapability('users:manage')` | Créer un salarié |
+| `PUT` | `/users/:id` | `requireTenantCapability('users:manage')` | Mettre à jour un salarié |
 
 ### Créer un salarié
 
-Le bouton « Nouveau salarié » ouvre un formulaire. La création appelle `POST /api/users`, gardée par la capacité `users:manage`.
+Le formulaire de création envoie `POST /users`. Champs disponibles :
 
-| Champ | Contrainte (schéma Zod) |
-|---|---|
-| `username` | requis, 1–100 car., `^[a-zA-Z0-9._-]+$` |
-| `password` | requis, 8–255 car. |
-| `displayName` | optionnel, ≤ 200 car. |
-| `email` | optionnel, format e-mail |
-| `role` | optionnel (défaut `employe`) — un slug de `permission_sets` |
-| `contratId` | optionnel, entier > 0 ou null |
-| `managerId` | optionnel, entier > 0 ou null |
-
-À la création, l'utilisateur est aussi rattaché au tenant courant avec le rôle choisi (`user_tenants`), et l'action est journalisée (`user.create`).
-
-> Lorsque le SSO Obligate est actif, la création locale est désactivée : l'écran affiche « Comptes gérés dans Obligate (SSO) » à la place du bouton, car les comptes sont provisionnés par la passerelle.
+| Champ | Contenu |
+|-------|---------|
+| `username` | Identifiant de connexion (obligatoire) |
+| `password` | Mot de passe local, **≥ 8 caractères** (validé côté client) |
+| `displayName` | Nom affiché (optionnel) |
+| `email` | Adresse e-mail (optionnel) |
+| `role` | Slug d'un jeu de permissions (`employe` par défaut) |
+| `contratId` | Contrat affecté (optionnel) |
+| `managerId` | Manager responsable (optionnel) |
 
 ### Éditer un salarié
 
-Les champs se modifient en ligne dans le tableau ; chaque changement déclenche `PUT /api/users/:id` (garde `users:manage`). Les colonnes éditables sont le **rôle**, le **contrat**, le **manager** et l'état **actif**.
+L'édition en ligne appelle `PUT /users/:id` (méthode `userService.update`), protégée par un garde d'appartenance : la mise à jour n'aboutit que si l'utilisateur est bien membre du tenant. Champs modifiables : `displayName`, `email`, `role`, `isActive`, `contratId`, `managerId`.
 
-| Colonne | Champ modifié | Remarque |
-|---|---|---|
-| Rôle | `role` | Liste des jeux de permissions ; synchronise aussi `user_tenants.role` |
-| Contrat | `contratId` | Pilote le calcul du temps de travail |
-| Manager | `managerId` | Responsable du planning (exclut l'utilisateur lui-même) |
-| Actif | `isActive` | Désactive le compte sans le supprimer |
+- **Affecter un contrat** (`contratId`) : liste déroulante des contrats du tenant.
+- **Affecter un manager** (`managerId`) : liste des utilisateurs de rôle `manager` ou `admin`, en excluant le salarié lui-même.
+- **Rôle** (`role`) : liste des jeux de permissions ; définit les capacités de la personne (voir « Jeux de permissions & capacités »).
+- **Actif** (`isActive`) : désactive le compte sans le supprimer.
 
-Cas des comptes SSO (`foreignSource = 'obligate'`) : l'identité, le rôle et l'activation sont **verrouillés** (gérés dans Obligate), mais le **contrat** et le **manager** restent éditables car ils sont locaux à Obliplan (absents d'Obligate). Le changement de rôle resynchronise `user_tenants.role`, qui est ce qui pilote réellement les capacités dans le tenant.
+### Comptes gérés par le SSO Obligate
 
-### Options complémentaires
+Quand le SSO Obligate est activé, l'en-tête affiche « Comptes gérés dans Obligate (SSO) » et le bouton de création disparaît. Pour un compte dont `foreignSource === 'obligate'` :
 
-- **Avatar** (`users.avatar`) : photo de profil, synchronisée depuis Obligate (`profilePhotoUrl`) à la connexion SSO. `null` → avatar à initiales. Champ d'affichage : il n'est pas édité depuis l'écran Salariés.
-- **Récup self-service** (`users.recup_self_service`) : opt-in par salarié à la vue de récupération en self-service (`/ma-recup`). Il se bascule depuis l'écran Récupération via `PATCH /api/recup/self-service` (capacité `recup:manage`), et non depuis Salariés.
-- **RGPD** : chaque ligne propose « Exporter » (export JSON des données) et « Anonymiser » (irréversible : efface l'identité et le lien SSO côté Obliplan, mais conserve les enregistrements de planning et de paie). Voir « Conformité RGPD ».
+- l'**identité, le rôle et l'état actif** sont verrouillés (gérés dans Obligate) ;
+- le **contrat** et le **manager** restent éditables (données locales à Obliplan, absentes d'Obligate).
 
-## Contrats
+### Options du salarié (attributs)
 
-Le contrat est le modèle **central** qui porte les règles de calcul du temps de travail : il est affecté à un salarié (`contratId`) et détermine ses heures attendues. L'écran Contrats est réservé au rôle `admin` ; les créations/modifications/suppressions sont gardées par la capacité `contrats:manage` (`POST` / `PUT` / `DELETE` sur `/api/contrats`).
+Deux attributs figurent sur l'objet `User` mais ne se règlent **pas** sur cet écran :
 
-| Champ (`Contrat`) | Colonne SQL | Type | Rôle |
-|---|---|---|---|
-| `heuresHebdoBaseMin` | `heures_hebdo_base_min` | minutes | Base hebdomadaire (35 h, 39 h…) stockée en minutes |
-| `heuresSupAutorisees` | `heures_sup_autorisees` | bool | Si `false`, tout dépassement bascule en récupération |
-| `seuilHeuresSupMin` | `seuil_heures_sup_min` | minutes / null | Seuil au-delà duquel le dépassement compte en heures sup |
-| `alternance` | `alternance` | bool | Contrat en alternance : les jours d'école réduisent l'attendu |
-| `workPattern` | `work_pattern` | `number[7]` / null | Minutes attendues par jour [Lun…Dim] ; `null` = uniforme base/5 (Lun–Ven) |
-| `ftePercent` | `fte_percent` | 0–100 / null | Équivalent temps plein (informatif) |
-| `color` | `color` | `#rrggbb` / null | Couleur du contrat (visualisation planning) |
-| `libelle` | `libelle` | texte | Nom du contrat |
+- `recupSelfService` — opt-in par salarié à la vue self-service de récupération (`/ma-recup`). Il se bascule depuis l'écran d'administration de la récupération (voir « Récupération : règles, attribution & solde »), via `recupApi.setSelfService`.
+- `avatar` — photo de profil synchronisée depuis Obligate (repli sur les initiales).
 
-### Répartition par jour (work pattern)
+### RGPD
 
-Par défaut, un contrat répartit sa base de façon uniforme sur 5 jours (Lun–Ven). En activant « Répartition par jour » (temps partiel / jours fixes), on saisit 7 valeurs d'heures attendues (Lun…Dim). Points de comportement issus de l'écran :
+Pour les gestionnaires (`users:manage`), chaque ligne propose l'**export** des données (`GET /gdpr/export/:id`) et l'**anonymisation** (`POST /gdpr/anonymize/:id`, irréversible : efface l'identité mais conserve les enregistrements de planning et de paie). L'anonymisation n'est pas proposée pour un compte déjà anonymisé ni pour soi-même. Le compte Obligate de la personne n'est pas affecté.
 
-- Lorsqu'un work pattern est défini, la **base hebdomadaire enregistrée = la somme du pattern** (l'UI passe en heures, le stockage en minutes ; chaque jour est borné 0–24 h).
-- Un jour est « travaillé » si sa valeur est `> 0`.
-- Des préréglages sont proposés : `35h / 5j` (100 %), `Temps plein 39h` (100 %), `80% / 4j (sans mercredi)` (80 %).
-- Le champ `ftePercent` (0–100) n'est retenu que si le work pattern est actif.
+## Contrats (`/contrats`)
 
-### Heures sup et récupération
+Un contrat porte les paramètres de temps de travail d'un salarié. Les boutons de création/édition/suppression n'apparaissent qu'avec la capacité `contrats:manage`.
 
-Le drapeau `heuresSupAutorisees` détermine la destination des dépassements : `Oui` → heures supplémentaires ; `Non` → récupération (l'écran affiche « Non (→ récup) »). Le `seuilHeuresSupMin` optionnel fixe le point à partir duquel un dépassement est comptabilisé en heures sup.
+### Endpoints
+
+| Méthode | Route | Garde |
+|---------|-------|-------|
+| `GET` | `/contrats` | (lecture) |
+| `POST` | `/contrats` | `requireTenantCapability('contrats:manage')` |
+| `PUT` | `/contrats/:id` | `requireTenantCapability('contrats:manage')` |
+| `DELETE` | `/contrats/:id` | `requireTenantCapability('contrats:manage')` |
+
+### Champs d'un contrat
+
+| Champ (API) | Colonne | Type | Rôle |
+|-------------|---------|------|------|
+| `libelle` | `libelle` | chaîne | Nom du contrat |
+| `heuresHebdoBaseMin` | `heures_hebdo_base_min` | entier (minutes) | Base hebdomadaire attendue |
+| `heuresSupAutorisees` | `heures_sup_autorisees` | booléen | Autorise les heures sup (sinon → récupération) |
+| `seuilHeuresSupMin` | `seuil_heures_sup_min` | entier (minutes) ou `null` | Seuil de déclenchement des heures sup |
+| `alternance` | `alternance` | booléen | Alternance : les jours d'école réduisent l'attendu |
+| `workPattern` | `work_pattern` | tableau de 7 entiers (minutes) ou `null` | Répartition par jour Lun→Dim |
+| `ftePercent` | `fte_percent` | entier 0–100 ou `null` | Équivalent temps plein (%) |
+| `color` | `color` | chaîne ou `null` | Couleur (visualisation planning) |
+
+> Les durées sont stockées en **minutes** en base ; l'interface les saisit en heures et convertit (p. ex. 35 h → 2100 min). `work_pattern` est sérialisé en JSON.
+
+### Répartition par jour (work pattern) et FTE
+
+Par défaut, l'attendu est réparti uniformément sur la base hebdomadaire. En activant « Répartition par jour » (temps partiel / jours fixes), on définit un tableau de 7 valeurs horaires (Lundi → Dimanche). Dans ce cas, `heuresHebdoBaseMin` est recalculé comme la **somme du pattern** (base, liste et calcul restent cohérents), et `ftePercent` peut être renseigné (0–100). L'interface propose des préréglages : `35h / 5j`, `Temps plein 39h`, `80% / 4j (sans mercredi)`. Sans pattern, `ftePercent` reste `null`.
+
+### Heures sup et seuil
+
+Lorsque `heuresSupAutorisees` est faux, l'interface indique « Non (→ récup) » : le dépassement bascule en récupération au lieu d'être compté en heures supplémentaires. `seuilHeuresSupMin` fixe, en option, le seuil de déclenchement.
 
 ### Suppression
 
-`DELETE /api/contrats/:id` peut échouer si le contrat est référencé par des salariés (l'écran affiche « Suppression impossible (contrat utilisé ?) »).
+`DELETE /contrats/:id` échoue si le contrat est encore utilisé (référencé par un salarié) ; l'interface affiche alors « Suppression impossible (contrat utilisé ?) ».
 
-## Impact sur les compteurs
+## Impact des contrats sur les compteurs
 
-Les contrats sont la source des règles de calcul : heures attendues (base ou work pattern), bascule heures sup / récupération, réduction de l'attendu pour l'alternance (jours d'école). Le détail du calcul des compteurs (attendu, réalisé, solde de récupération) est traité dans le chapitre consacré aux compteurs et au temps de travail.
+Les paramètres du contrat (base hebdomadaire, répartition par jour, alternance, seuil et autorisation d'heures sup) alimentent le calcul de l'attendu, des heures supplémentaires et de la récupération. Voir « Récupération : règles, attribution & solde » et « Heures supplémentaires : natures, déclarations & décision » pour le détail des compteurs.
 
 ## Références
 
 - `server/src/services/user.service.ts`
-- `server/src/controllers/user.controller.ts`
-- `server/src/routes/users.routes.ts`
 - `server/src/services/contrat.service.ts`
+- `server/src/routes/users.routes.ts`
 - `server/src/routes/contrats.routes.ts`
-- `server/src/validators/schemas.ts` (`createUserSchema`, `updateUserSchema`, `createContratSchema`)
-- `server/src/db/migrations/065_user_avatar.ts`
-- `server/src/db/migrations/025_recup_redesign.ts` (`recup_self_service`)
-- `shared/src/types.ts` (`User`, `Contrat`)
 - `client/src/pages/UsersPage.tsx`
 - `client/src/pages/ContratsPage.tsx`
+- `shared/src/types.ts` (`User`), `shared/src/*` (`Contrat`)

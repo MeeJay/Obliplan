@@ -25,7 +25,7 @@ Dans Obliplan, ouvrir `Administration → Paramètres → Obligate SSO Gateway` 
 2. Coller la **clé API** récupérée à l'étape 2.
 3. **Activer le SSO**.
 
-Cette écran pilote l'endpoint `PATCH /api/admin/config/obligate`, dont la charge utile est :
+Cet écran pilote l'endpoint `PATCH /api/admin/config/obligate`, dont la charge utile est :
 
 ```json
 {

@@ -2,7 +2,7 @@ Le schéma PostgreSQL d'Obliplan est décrit intégralement par les migrations K
 
 ## Panorama des tables par domaine
 
-Le schéma compte 43 tables métier (hors tables internes de Knex `knex_migrations` / `knex_migrations_lock`). Elles sont regroupées ci-dessous selon les six domaines qui structurent le reste de ce chapitre.
+Le schéma compte 45 tables métier (hors tables internes de Knex `knex_migrations` / `knex_migrations_lock`). Elles sont regroupées ci-dessous selon les six domaines qui structurent le reste de ce chapitre, auxquels s'ajoute le module de réservation de rendez-vous (tables ajoutées en migration `067`, non encore couvert par une page dédiée).
 
 ### Cœur (identité & organisation)
 
@@ -89,11 +89,20 @@ Détail : « Projets, tâches & équipes ».
 
 Détail : « Transverse : notifications, audit, push, configuration ».
 
+### Réservation de rendez-vous (module public)
+
+| Table | Rôle |
+|-------|------|
+| `booking_pages` | Page publique de prise de rendez-vous par utilisateur (jeton de partage, créneaux configurables). |
+| `appointments` | Rendez-vous réservés par un visiteur externe non authentifié. |
+
+> **Note** — Ce module (migration `067`) ajoute aussi deux colonnes à `hour_types` (`bookable`, `booking_exclude_projects`). Il ne fait pas encore l'objet d'une page de détail dédiée.
+
 ## Conventions du schéma
 
 ### Migrations Knex numérotées
 
-Le schéma se construit uniquement par les migrations Knex, dans `server/src/db/migrations/`, numérotées séquentiellement de `001` à `066` (le préfixe `039` n'est pas utilisé). Chaque fichier exporte une paire `up` / `down` :
+Le schéma se construit uniquement par les migrations Knex, dans `server/src/db/migrations/`, numérotées séquentiellement de `001` à `067` (le préfixe `039` n'est pas utilisé). Chaque fichier exporte une paire `up` / `down` :
 
 ```ts
 export async function up(knex: Knex): Promise<void> { /* création / altération */ }
@@ -145,7 +154,7 @@ Les migrations sont exécutées au premier démarrage du serveur, et manuellemen
 npm run migrate            # racine → cd server && knex migrate:latest
 
 # Créer une nouvelle migration
-cd server && npm run migrate:make -- 067_ma_nouvelle_table
+cd server && npm run migrate:make -- 068_ma_nouvelle_table
 
 # Annuler le dernier lot
 cd server && npm run migrate:rollback
@@ -155,7 +164,7 @@ La configuration (répertoire des migrations, connexion, `searchPath`) vit dans 
 
 ## Références
 
-- `server/src/db/migrations/` (fichiers `001` à `066`)
+- `server/src/db/migrations/` (fichiers `001` à `067`)
 - `server/knexfile.ts`
 - `server/src/db/index.ts`
 - `server/src/services/calc.service.ts`
