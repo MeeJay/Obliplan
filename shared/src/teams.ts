@@ -26,12 +26,17 @@ export interface TeamMembership {
   teamId: number;
   userId: number;
   role: TeamMemberRole;
+  /** Whether this member's own planning is part of the team roster (see TeamMember). */
+  inPlanning: boolean;
 }
 
 /** One team member with their role, as returned/accepted by the team members editor. */
 export interface TeamMember {
   userId: number;
   role: TeamMemberRole;
+  /** When false, the person manages/sees the team but their OWN planning is hidden
+   *  from the team roster (management-only). Defaults to true. */
+  inPlanning: boolean;
 }
 
 export interface TeamPermission {

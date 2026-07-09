@@ -56,6 +56,23 @@ export const tenantController = {
     }
   },
 
+  /** POST /api/tenant/default - set (or clear with null) the user's default workspace. */
+  async setDefault(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const raw = (req.body as { tenantId?: number | null }).tenantId;
+      const tenantId = raw === null || raw === undefined ? null : Number(raw);
+      if (tenantId !== null) {
+        const isAdmin = req.session.role === 'admin';
+        const allowed = isAdmin || (await tenantService.userHasAccess(req.session.userId!, tenantId));
+        if (!allowed) throw new AppError(403, 'Accès au tenant refusé');
+      }
+      await tenantService.setPreferredTenant(req.session.userId!, tenantId);
+      res.json({ success: true, data: { preferredTenantId: tenantId } });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   // ── Admin: workspace management ──────────────────────────────────────────────
   /** GET /api/tenants/all - every workspace (admin). */
   async listAll(_req: Request, res: Response, next: NextFunction): Promise<void> {

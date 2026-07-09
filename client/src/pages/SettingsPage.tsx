@@ -66,6 +66,7 @@ export function SettingsPage() {
   const [obligate, setObligate] = useState<ObligateConfig | null>(null);
   const [obligateUrl, setObligateUrl] = useState('');
   const [obligateApiKey, setObligateApiKey] = useState('');
+  const [importingUsers, setImportingUsers] = useState(false);
   const [showKey, setShowKey] = useState(false);
 
   const [smtp, setSmtp] = useState<SmtpConfig | null>(null);
@@ -150,6 +151,21 @@ export function SettingsPage() {
     } catch (err) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
       toast.error(msg || 'Échec de l\'enregistrement Obligate');
+    }
+  }
+
+  async function importObligateUsers() {
+    setImportingUsers(true);
+    try {
+      const r = await appConfigApi.importObligateUsers();
+      toast.success(
+        `Import terminé : ${r.created} créé(s), ${r.updated} mis à jour${r.failed ? `, ${r.failed} en échec` : ''} (sur ${r.total}).`,
+      );
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast.error(msg || "Échec de l'import depuis Obligate");
+    } finally {
+      setImportingUsers(false);
     }
   }
 
@@ -376,6 +392,21 @@ export function SettingsPage() {
                 </p>
               </div>
               <Toggle on={obligate.enabled} onClick={() => void saveObligate({ enabled: !obligate.enabled })} />
+            </div>
+          )}
+
+          {obligate?.url && obligate.apiKeySet && (
+            <div className="mt-4 flex items-center justify-between gap-4 border-t border-border pt-4">
+              <div>
+                <p className="text-sm font-medium text-text-primary">Importer les utilisateurs</p>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  Fait remonter dans Obliplan tous les utilisateurs ayant accès à cette app dans Obligate, sans attendre
+                  leur première connexion. Réexécutable : les comptes existants sont mis à jour (rôles, espaces).
+                </p>
+              </div>
+              <Button variant="secondary" onClick={importObligateUsers} disabled={importingUsers} className="shrink-0">
+                {importingUsers ? 'Import en cours…' : 'Importer depuis Obligate'}
+              </Button>
             </div>
           )}
         </div>

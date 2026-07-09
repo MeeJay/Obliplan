@@ -57,7 +57,12 @@ export const userService = {
     const teamRows = await db('team_memberships as tm')
       .join('user_teams as t', 't.id', 'tm.team_id')
       .where('t.tenant_id', tenantId)
-      .select<{ team_id: number; user_id: number; role: string }[]>('tm.team_id', 'tm.user_id', 'tm.role');
+      .select<{ team_id: number; user_id: number; role: string; in_planning: boolean }[]>(
+        'tm.team_id',
+        'tm.user_id',
+        'tm.role',
+        'tm.in_planning',
+      );
 
     // Build adjacency: managerId → Set(managed ids).
     const adj = new Map<number, Set<number>>();
@@ -72,7 +77,10 @@ export const userService = {
     const membersByTeam = new Map<number, number[]>();
     const managersByTeam = new Map<number, number[]>();
     for (const r of teamRows) {
-      (membersByTeam.get(r.team_id) ?? membersByTeam.set(r.team_id, []).get(r.team_id)!).push(r.user_id);
+      // Only in-planning members form the roster a team manager can see; a management-only
+      // member (in_planning=false) manages the team without their own planning being reachable.
+      if (r.in_planning)
+        (membersByTeam.get(r.team_id) ?? membersByTeam.set(r.team_id, []).get(r.team_id)!).push(r.user_id);
       if (r.role === 'manager')
         (managersByTeam.get(r.team_id) ?? managersByTeam.set(r.team_id, []).get(r.team_id)!).push(r.user_id);
     }

@@ -8,8 +8,14 @@ import { tenantModuleService } from '../services/tenantModule.service';
 import { AppError } from '../middleware/errorHandler';
 import type { LoginRequest, SessionInfo } from '@obliplan/shared';
 
-/** Set req.session.currentTenantId to the user's first accessible tenant. */
+/** Set req.session.currentTenantId to the user's default workspace if set and still
+ *  accessible, otherwise their first accessible tenant. */
 export async function setSessionTenant(req: Request, userId: number): Promise<void> {
+  const preferred = await tenantService.getPreferredTenant(userId);
+  if (preferred && (req.session.platformAdmin || (await tenantService.userHasAccess(userId, preferred)))) {
+    req.session.currentTenantId = preferred;
+    return;
+  }
   const tenant = await tenantService.getFirstTenantForUser(userId);
   req.session.currentTenantId = tenant?.id ?? 1;
 }
@@ -84,6 +90,7 @@ export const authController = {
         capabilities,
         modules,
         platformAdmin: isPlatformAdmin,
+        preferredTenantId: await tenantService.getPreferredTenant(user.id),
       };
       res.json({ success: true, data });
     } catch (err) {

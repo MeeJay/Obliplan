@@ -13,6 +13,7 @@ export const setTeamMembersSchema = z.object({
     z.object({
       userId: z.number().int().positive(),
       role: z.enum(['member', 'manager']),
+      inPlanning: z.boolean().optional(),
     }),
   ),
 });

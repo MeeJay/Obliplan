@@ -11,6 +11,7 @@ router.use(requireAuth);
 // Current user
 router.get('/', tenantController.list); // /api/tenants - my workspaces
 router.post('/switch', tenantController.switch); // /api/tenant/switch
+router.post('/default', tenantController.setDefault); // /api/tenant/default
 
 // Platform admin: all-tenants / workspace management (create/delete tenants, cross-
 // tenant members) - global scope, so a mere tenant admin must not reach it.

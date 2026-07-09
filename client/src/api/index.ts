@@ -164,6 +164,8 @@ export const moduleApi = {
 export const tenantApi = {
   list: () => get<TenantWithRole[]>('/tenants'),
   switch: (tenantId: number) => post<{ currentTenantId: number }>('/tenant/switch', { tenantId }),
+  setDefault: (tenantId: number | null) =>
+    post<{ preferredTenantId: number | null }>('/tenant/default', { tenantId }),
   // Admin workspace management
   listAll: () => get<Tenant[]>('/tenants/all'),
   create: (data: { name: string; slug?: string }) => post<Tenant>('/tenants', data),
@@ -179,6 +181,11 @@ export const appConfigApi = {
   getObligate: () => get<ObligateConfig>('/admin/config/obligate'),
   patchObligate: (patch: { url?: string | null; apiKey?: string | null; enabled?: boolean }) =>
     patchReq<ObligateConfig>('/admin/config/obligate', patch),
+  importObligateUsers: () =>
+    post<{ total: number; created: number; updated: number; failed: number }>(
+      '/admin/config/obligate/import-users',
+      {},
+    ),
   getSmtp: () => get<SmtpConfig>('/admin/config/smtp'),
   patchSmtp: (patch: Partial<SmtpConfig> & { pass?: string | null }) =>
     patchReq<SmtpConfig>('/admin/config/smtp', patch),

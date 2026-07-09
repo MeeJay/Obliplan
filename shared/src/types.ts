@@ -295,4 +295,6 @@ export interface SessionInfo {
   modules: string[];
   /** Platform (system) admin - distinct from a per-tenant admin. Gates global config. */
   platformAdmin: boolean;
+  /** The user's chosen default workspace (or null). Login lands here when accessible. */
+  preferredTenantId: number | null;
 }

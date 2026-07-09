@@ -84,6 +84,17 @@ export const tenantService = {
     return rows.map((r) => ({ ...rowToTenant(r), role: r.role as TenantRole }));
   },
 
+  /** The user's chosen default workspace id, or null if none set. */
+  async getPreferredTenant(userId: number): Promise<number | null> {
+    const row = await db('users').where({ id: userId }).first<{ preferred_tenant_id: number | null }>('preferred_tenant_id');
+    return row?.preferred_tenant_id ?? null;
+  },
+
+  /** Set (or clear, with null) the user's default workspace. Caller validates access. */
+  async setPreferredTenant(userId: number, tenantId: number | null): Promise<void> {
+    await db('users').where({ id: userId }).update({ preferred_tenant_id: tenantId, updated_at: db.fn.now() });
+  },
+
   async userHasAccess(userId: number, tenantId: number): Promise<boolean> {
     const row = await db('user_tenants').where({ user_id: userId, tenant_id: tenantId }).first('user_id');
     return !!row;

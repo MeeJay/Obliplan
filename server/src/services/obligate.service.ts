@@ -65,6 +65,31 @@ export const obligateService = {
     }
   },
 
+  /**
+   * Pull every Obligate user who has access to this app (Obligate GET
+   * /api/apps/users), each carrying the same { role, tenants } an SSO login
+   * would assert. Used by the admin "import from Obligate" action to
+   * pre-provision the roster. Returns [] when SSO isn't configured.
+   */
+  async listAppUsers(): Promise<ObligateUserAssertion[]> {
+    const raw = await appConfigService.getObligateRaw();
+    if (!raw.url || !raw.apiKey) return [];
+    try {
+      const res = await fetch(`${raw.url}/api/apps/users`, {
+        headers: { Authorization: `Bearer ${raw.apiKey}` },
+      });
+      if (!res.ok) {
+        logger.warn(`Obligate listAppUsers failed: HTTP ${res.status}`);
+        return [];
+      }
+      const data = (await res.json()) as { success: boolean; data?: ObligateUserAssertion[] };
+      return data.success && Array.isArray(data.data) ? data.data : [];
+    } catch (err) {
+      logger.error(err, 'Obligate listAppUsers error');
+      return [];
+    }
+  },
+
   /** Best-effort: tell Obligate which local user id an Obligate user maps to. */
   async reportProvision(obligateUserId: number, remoteUserId: number): Promise<void> {
     const raw = await appConfigService.getObligateRaw();

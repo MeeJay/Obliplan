@@ -27,8 +27,14 @@ function syncedTheme(assertion: ObligateUserAssertion): string | null {
   return t && KNOWN_THEMES.has(t) ? t : null;
 }
 
-/** Provision/sync a local user from an Obligate assertion; sets session fields. Returns local user id. */
-async function provisionObligateUser(assertion: ObligateUserAssertion, req: import('express').Request): Promise<number> {
+/**
+ * Provision/sync a local user from an Obligate assertion WITHOUT touching the
+ * session. Creates or refreshes the user, the sso_foreign_users link and the
+ * per-tenant memberships. Returns the local user id. Shared by the SSO callback
+ * (which then attaches a session) and the admin "import from Obligate" action
+ * (which pre-provisions users who have not logged in yet).
+ */
+export async function provisionUserCore(assertion: ObligateUserAssertion): Promise<number> {
   const appRole = computeAppRole(assertion);
   const theme = syncedTheme(assertion);
 
@@ -125,6 +131,14 @@ async function provisionObligateUser(assertion: ObligateUserAssertion, req: impo
       .onConflict(['user_id', 'tenant_id'])
       .merge({ role: 'admin' });
   }
+
+  return localUserId;
+}
+
+/** Provision the user (via provisionUserCore) AND attach an SSO session. Returns local user id. */
+async function provisionObligateUser(assertion: ObligateUserAssertion, req: import('express').Request): Promise<number> {
+  const localUserId = await provisionUserCore(assertion);
+  const appRole = computeAppRole(assertion);
 
   // 4. Session.
   req.session.userId = localUserId;

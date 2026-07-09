@@ -16,6 +16,7 @@ router.use(requireAuth, requirePlatformAdmin());
 router.get('/system', appConfigController.system);
 router.get('/obligate', appConfigController.getObligate);
 router.patch('/obligate', validate(patchObligateSchema), appConfigController.patchObligate);
+router.post('/obligate/import-users', appConfigController.importObligateUsers);
 router.get('/smtp', appConfigController.getSmtp);
 router.patch('/smtp', validate(patchSmtpSchema), appConfigController.patchSmtp);
 router.post('/smtp/test', validate(testSmtpSchema), appConfigController.testSmtp);

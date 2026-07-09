@@ -18,6 +18,8 @@ function syncObligateTheme(user: User | null): void {
 interface AuthState {
   user: User | null;
   currentTenantId: number | null;
+  /** The user's chosen default workspace (or null). */
+  preferredTenantId: number | null;
   tenants: TenantWithRole[];
   capabilities: string[];
   modules: string[];
@@ -30,6 +32,8 @@ interface AuthState {
   logout: () => Promise<void>;
   checkSession: () => Promise<void>;
   switchTenant: (tenantId: number) => Promise<void>;
+  /** Set (or clear with null) the user's default workspace. */
+  setDefaultTenant: (tenantId: number | null) => Promise<void>;
 
   isAdmin: () => boolean;
   isPlatformAdmin: () => boolean;
@@ -43,6 +47,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   currentTenantId: null,
+  preferredTenantId: null,
   tenants: [],
   capabilities: [],
   modules: [],
@@ -59,6 +64,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({
         user: session.user,
         currentTenantId: session.currentTenantId,
+        preferredTenantId: session.preferredTenantId ?? null,
         tenants: session.tenants,
         capabilities: session.capabilities ?? [],
         modules: session.modules ?? [],
@@ -81,7 +87,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await authApi.logout();
     } finally {
-      set({ user: null, currentTenantId: null, tenants: [], capabilities: [], modules: [], platformAdmin: false });
+      set({ user: null, currentTenantId: null, preferredTenantId: null, tenants: [], capabilities: [], modules: [], platformAdmin: false });
     }
   },
 
@@ -91,6 +97,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({
         user: session.user,
         currentTenantId: session.currentTenantId,
+        preferredTenantId: session.preferredTenantId ?? null,
         tenants: session.tenants,
         capabilities: session.capabilities ?? [],
         modules: session.modules ?? [],
@@ -106,6 +113,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   switchTenant: async (tenantId) => {
     await tenantApi.switch(tenantId);
     set({ currentTenantId: tenantId });
+  },
+
+  setDefaultTenant: async (tenantId) => {
+    await tenantApi.setDefault(tenantId);
+    set({ preferredTenantId: tenantId });
   },
 
   isAdmin: () => get().user?.role === 'admin',

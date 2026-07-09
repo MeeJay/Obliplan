@@ -95,12 +95,25 @@ export function TeamsPage() {
       ...draft,
       members: has
         ? draft.members.filter((m) => m.userId !== id)
-        : [...draft.members, { userId: id, role: 'member' }],
+        : [...draft.members, { userId: id, role: 'member', inPlanning: true }],
     });
   }
   function setMemberRole(id: number, role: TeamMemberRole) {
     if (!draft) return;
-    setDraft({ ...draft, members: draft.members.map((m) => (m.userId === id ? { ...m, role } : m)) });
+    // Leaving the manager role re-includes the person in the planning (only managers can opt out).
+    setDraft({
+      ...draft,
+      members: draft.members.map((m) =>
+        m.userId === id ? { ...m, role, inPlanning: role === 'manager' ? m.inPlanning : true } : m,
+      ),
+    });
+  }
+  function memberPlanning(id: number): boolean {
+    return draft?.members.find((m) => m.userId === id)?.inPlanning ?? true;
+  }
+  function setMemberPlanning(id: number, inPlanning: boolean) {
+    if (!draft) return;
+    setDraft({ ...draft, members: draft.members.map((m) => (m.userId === id ? { ...m, inPlanning } : m)) });
   }
 
   function addPerm() {
@@ -253,7 +266,9 @@ export function TeamsPage() {
                 <div className="mb-1 text-sm font-medium text-text-secondary">Membres</div>
                 <p className="mb-2 text-xs text-text-muted">
                   Un <strong>manager</strong> d'équipe gère le planning de tous les autres membres (récursivement, y compris
-                  les équipes qu'ils managent). Une personne peut être membre de plusieurs équipes.
+                  les équipes qu'ils managent). Une personne peut être membre de plusieurs équipes. Décochez{' '}
+                  <strong>Dans le planning</strong> pour un manager qui doit voir l'équipe sans que son propre planning y
+                  apparaisse.
                 </p>
                 <div className="max-h-52 space-y-0.5 overflow-y-auto rounded-md border border-border bg-bg-tertiary p-2">
                   {users.map((u) => {
@@ -266,18 +281,35 @@ export function TeamsPage() {
                           {userLabel(u)}
                         </label>
                         {isMember && (
-                          <label
-                            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
-                              role === 'manager' ? 'bg-accent/15 text-accent' : 'text-text-muted'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={role === 'manager'}
-                              onChange={(e) => setMemberRole(u.id, e.target.checked ? 'manager' : 'member')}
-                            />
-                            Manager
-                          </label>
+                          <div className="flex items-center gap-1.5">
+                            {role === 'manager' && (
+                              <label
+                                className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+                                  memberPlanning(u.id) ? 'text-text-muted' : 'bg-amber-500/15 text-amber-500'
+                                }`}
+                                title="Le planning de cette personne apparaît dans l'équipe"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={memberPlanning(u.id)}
+                                  onChange={(e) => setMemberPlanning(u.id, e.target.checked)}
+                                />
+                                Dans le planning
+                              </label>
+                            )}
+                            <label
+                              className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+                                role === 'manager' ? 'bg-accent/15 text-accent' : 'text-text-muted'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={role === 'manager'}
+                                onChange={(e) => setMemberRole(u.id, e.target.checked ? 'manager' : 'member')}
+                              />
+                              Manager
+                            </label>
+                          </div>
                         )}
                       </div>
                     );

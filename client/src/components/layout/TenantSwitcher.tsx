@@ -1,10 +1,10 @@
 import { useRef, useState, useEffect } from 'react';
-import { ChevronDown, Building2, Check } from 'lucide-react';
+import { ChevronDown, Building2, Check, Star } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { cn } from '../../utils/cn';
 
 export function TenantSwitcher() {
-  const { currentTenantId, tenants, switchTenant } = useAuthStore();
+  const { currentTenantId, preferredTenantId, tenants, switchTenant, setDefaultTenant } = useAuthStore();
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -41,6 +41,12 @@ export function TenantSwitcher() {
     }
   }
 
+  async function handleSetDefault(e: React.MouseEvent, tenantId: number) {
+    e.stopPropagation();
+    // Toggle: clicking the current default clears it (back to "first accessible").
+    await setDefaultTenant(preferredTenantId === tenantId ? null : tenantId);
+  }
+
   return (
     <div className="relative">
       <button
@@ -69,25 +75,48 @@ export function TenantSwitcher() {
             <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Changer d'espace</p>
           </div>
           <div className="max-h-64 overflow-y-auto py-1">
-            {tenants.map((tenant) => (
-              <button
-                key={tenant.id}
-                onClick={() => handleSwitch(tenant.id)}
-                className={cn(
-                  'flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-bg-hover',
-                  tenant.id === currentTenantId ? 'font-semibold text-accent' : 'text-text-primary',
-                )}
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <Building2 size={13} className="shrink-0 text-text-muted" />
-                  <span className="truncate">{tenant.name}</span>
-                  {tenant.role === 'admin' && (
-                    <span className="shrink-0 rounded bg-bg-tertiary px-1 py-0.5 text-[10px] text-text-muted">admin</span>
+            {tenants.map((tenant) => {
+              const isDefault = tenant.id === preferredTenantId;
+              return (
+                <div
+                  key={tenant.id}
+                  className={cn(
+                    'group flex items-center gap-1 pr-2 transition-colors hover:bg-bg-hover',
+                    tenant.id === currentTenantId ? 'font-semibold text-accent' : 'text-text-primary',
                   )}
+                >
+                  <button
+                    onClick={() => handleSwitch(tenant.id)}
+                    className="flex min-w-0 flex-1 items-center justify-between px-3 py-2 text-left text-sm"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Building2 size={13} className="shrink-0 text-text-muted" />
+                      <span className="truncate">{tenant.name}</span>
+                      {tenant.role === 'admin' && (
+                        <span className="shrink-0 rounded bg-bg-tertiary px-1 py-0.5 text-[10px] text-text-muted">admin</span>
+                      )}
+                    </div>
+                    {tenant.id === currentTenantId && <Check size={13} className="shrink-0 text-accent" />}
+                  </button>
+                  <button
+                    onClick={(e) => handleSetDefault(e, tenant.id)}
+                    title={isDefault ? 'Espace par défaut (cliquer pour retirer)' : 'Définir comme espace par défaut'}
+                    className={cn(
+                      'shrink-0 rounded p-1 transition-colors hover:bg-bg-tertiary',
+                      isDefault ? 'text-accent' : 'text-text-muted opacity-0 group-hover:opacity-100',
+                    )}
+                  >
+                    <Star size={13} className={cn(isDefault && 'fill-current')} />
+                  </button>
                 </div>
-                {tenant.id === currentTenantId && <Check size={13} className="shrink-0 text-accent" />}
-              </button>
-            ))}
+              );
+            })}
+          </div>
+          <div className="border-t border-border px-3 py-2">
+            <p className="text-[11px] text-text-muted">
+              <Star size={10} className="mr-1 inline align-[-1px]" />
+              L'espace par défaut s'ouvre à la connexion.
+            </p>
           </div>
         </div>
       )}

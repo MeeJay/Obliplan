@@ -15,6 +15,7 @@ interface TeamMembershipRow {
   team_id: number;
   user_id: number;
   role: TeamMemberRole;
+  in_planning: boolean;
 }
 
 interface TeamPermissionRow {
@@ -176,13 +177,19 @@ export const teamService = {
 
   // ── Members ────────────────────────────────────────────────────────────────
   async getMembers(teamId: number): Promise<TeamMember[]> {
-    const rows = await db<TeamMembershipRow>('team_memberships').where({ team_id: teamId }).select('user_id', 'role');
-    return rows.map((r) => ({ userId: r.user_id, role: r.role }));
+    const rows = await db<TeamMembershipRow>('team_memberships')
+      .where({ team_id: teamId })
+      .select('user_id', 'role', 'in_planning');
+    return rows.map((r) => ({ userId: r.user_id, role: r.role, inPlanning: r.in_planning }));
   },
 
   /** Replace-all: the given members (with roles) become the team's exact membership.
    *  Only ids that are real tenant users are kept; an unknown role falls back to 'member'. */
-  async setMembers(teamId: number, tenantId: number, members: TeamMember[]): Promise<TeamMember[]> {
+  async setMembers(
+    teamId: number,
+    tenantId: number,
+    members: Array<{ userId: number; role: TeamMemberRole; inPlanning?: boolean }>,
+  ): Promise<TeamMember[]> {
     const requestedIds = members.map((m) => m.userId);
     // Validate against tenant MEMBERSHIP (user_tenants), NOT users.tenant_id (home tenant):
     // admins/multi-tenant users are members of this tenant while their home tenant differs,
@@ -200,19 +207,23 @@ export const teamService = {
         )
       : new Set<number>();
     // De-dupe by userId (last wins) and drop non-members.
-    const byId = new Map<number, TeamMemberRole>();
+    const byId = new Map<number, { role: TeamMemberRole; inPlanning: boolean }>();
     for (const m of members) {
-      if (validIds.has(m.userId)) byId.set(m.userId, m.role === 'manager' ? 'manager' : 'member');
+      if (validIds.has(m.userId)) {
+        // Only a manager may be excluded from the roster; a plain member is always in-planning.
+        const role: TeamMemberRole = m.role === 'manager' ? 'manager' : 'member';
+        byId.set(m.userId, { role, inPlanning: role === 'manager' ? m.inPlanning !== false : true });
+      }
     }
     await db.transaction(async (trx) => {
       await trx('team_memberships').where({ team_id: teamId }).del();
       if (byId.size) {
         await trx('team_memberships').insert(
-          [...byId].map(([userId, role]) => ({ team_id: teamId, user_id: userId, role })),
+          [...byId].map(([userId, m]) => ({ team_id: teamId, user_id: userId, role: m.role, in_planning: m.inPlanning })),
         );
       }
     });
-    return [...byId].map(([userId, role]) => ({ userId, role }));
+    return [...byId].map(([userId, m]) => ({ userId, role: m.role, inPlanning: m.inPlanning }));
   },
 
   // ── Resource scope (permissions) ─────────────────────────────────────────────
