@@ -184,11 +184,19 @@ export const teamService = {
    *  Only ids that are real tenant users are kept; an unknown role falls back to 'member'. */
   async setMembers(teamId: number, tenantId: number, members: TeamMember[]): Promise<TeamMember[]> {
     const requestedIds = members.map((m) => m.userId);
+    // Validate against tenant MEMBERSHIP (user_tenants), NOT users.tenant_id (home tenant):
+    // admins/multi-tenant users are members of this tenant while their home tenant differs,
+    // so a home-tenant filter would wrongly drop them from the team.
     const validIds = requestedIds.length
       ? new Set(
-          (await db('users').where({ tenant_id: tenantId }).whereIn('id', requestedIds).select('id')).map(
-            (r: { id: number }) => r.id,
-          ),
+          (
+            await db('users')
+              .join('user_tenants', 'users.id', 'user_tenants.user_id')
+              .where('user_tenants.tenant_id', tenantId)
+              .whereIn('users.id', requestedIds)
+              .distinct('users.id')
+              .select('users.id')
+          ).map((r: { id: number }) => r.id),
         )
       : new Set<number>();
     // De-dupe by userId (last wins) and drop non-members.
