@@ -9,7 +9,12 @@ export const createTeamSchema = z.object({
 export const updateTeamSchema = createTeamSchema.partial();
 
 export const setTeamMembersSchema = z.object({
-  userIds: z.array(z.number().int().positive()),
+  members: z.array(
+    z.object({
+      userId: z.number().int().positive(),
+      role: z.enum(['member', 'manager']),
+    }),
+  ),
 });
 
 export const setTeamPermissionsSchema = z.object({

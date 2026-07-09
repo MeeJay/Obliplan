@@ -60,8 +60,8 @@ export const teamController = {
     try {
       const team = await teamService.getById(Number(req.params.id), req.tenantId);
       if (!team) throw new AppError(404, 'Équipe introuvable');
-      const { userIds } = req.body as SetTeamMembersInput;
-      res.json({ success: true, data: await teamService.setMembers(team.id, req.tenantId, userIds) });
+      const { members } = req.body as SetTeamMembersInput;
+      res.json({ success: true, data: await teamService.setMembers(team.id, req.tenantId, members) });
     } catch (err) {
       next(err);
     }

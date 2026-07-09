@@ -356,10 +356,18 @@ export const planningService = {
     actor: { userId: number; role: string },
     monday: string,
   ): Promise<UserWeek[]> {
-    const members =
-      actor.role === 'admin'
-        ? await userService.getByTenant(tenantId)
-        : await userService.getTeam(actor.userId, tenantId);
+    let members: User[];
+    if (actor.role === 'admin') {
+      members = await userService.getByTenant(tenantId);
+    } else {
+      members = await userService.getTeam(actor.userId, tenantId);
+      // A team-manager who is also a team member should see THEIR OWN planning in the grid
+      // (e.g. N managing "équipe technique" from inside it). Add self once, if not already present.
+      if (!members.some((m) => m.id === actor.userId)) {
+        const self = await userService.getById(actor.userId, tenantId);
+        if (self) members = [self, ...members];
+      }
+    }
     const [weeks, teamMap] = await Promise.all([
       Promise.all(members.map((u) => this.getUserWeek(tenantId, u, monday))),
       this.teamIdsByUser(tenantId, members.map((u) => u.id)),

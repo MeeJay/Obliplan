@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Plus, Trash2 } from 'lucide-react';
-import type { UserTeam, TeamScope, TeamLevel, User, Client, Board } from '@obliplan/shared';
+import type { UserTeam, TeamScope, TeamLevel, TeamMember, TeamMemberRole, User, Client, Board } from '@obliplan/shared';
 import { teamApi, userApi, clientApi, boardApi } from '../api';
 import { useAuthStore } from '../store/authStore';
 import { Card, CardBody } from '../components/common/Card';
@@ -21,11 +21,11 @@ interface Draft {
   name: string;
   description: string;
   canCreate: boolean;
-  memberIds: number[];
+  members: TeamMember[];
   perms: PermRow[];
 }
 
-const EMPTY: Draft = { name: '', description: '', canCreate: false, memberIds: [], perms: [] };
+const EMPTY: Draft = { name: '', description: '', canCreate: false, members: [], perms: [] };
 
 const SCOPE_LABEL: Record<TeamScope, string> = {
   all: 'Toutes les ressources',
@@ -74,21 +74,33 @@ export function TeamsPage() {
   }
 
   async function openEdit(team: UserTeam) {
-    const [memberIds, perms] = await Promise.all([teamApi.members(team.id), teamApi.permissions(team.id)]);
+    const [members, perms] = await Promise.all([teamApi.members(team.id), teamApi.permissions(team.id)]);
     setDraft({
       id: team.id,
       name: team.name,
       description: team.description ?? '',
       canCreate: team.canCreate,
-      memberIds,
+      members,
       perms: perms.map((p) => ({ scope: p.scope, scopeId: p.scopeId, level: p.level })),
     });
   }
 
+  function memberRole(id: number): TeamMemberRole | null {
+    return draft?.members.find((m) => m.userId === id)?.role ?? null;
+  }
   function toggleMember(id: number) {
     if (!draft) return;
-    const has = draft.memberIds.includes(id);
-    setDraft({ ...draft, memberIds: has ? draft.memberIds.filter((m) => m !== id) : [...draft.memberIds, id] });
+    const has = draft.members.some((m) => m.userId === id);
+    setDraft({
+      ...draft,
+      members: has
+        ? draft.members.filter((m) => m.userId !== id)
+        : [...draft.members, { userId: id, role: 'member' }],
+    });
+  }
+  function setMemberRole(id: number, role: TeamMemberRole) {
+    if (!draft) return;
+    setDraft({ ...draft, members: draft.members.map((m) => (m.userId === id ? { ...m, role } : m)) });
   }
 
   function addPerm() {
@@ -113,7 +125,7 @@ export function TeamsPage() {
     try {
       const fields = { name: draft.name.trim(), description: draft.description || null, canCreate: draft.canCreate };
       const team = draft.id ? await teamApi.update(draft.id, fields) : await teamApi.create(fields);
-      await teamApi.setMembers(team.id, draft.memberIds);
+      await teamApi.setMembers(team.id, draft.members);
       await teamApi.setPermissions(
         team.id,
         draft.perms.map((p) => ({ scope: p.scope, scopeId: p.scope === 'all' ? 0 : p.scopeId, level: p.level })),
@@ -236,20 +248,40 @@ export function TeamsPage() {
                 Les membres peuvent créer des projets
               </label>
 
-              {/* Members */}
+              {/* Members + per-member manager role */}
               <div>
-                <div className="mb-2 text-sm font-medium text-text-secondary">Membres</div>
-                <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border border-border bg-bg-tertiary p-2">
-                  {users.map((u) => (
-                    <label key={u.id} className="flex items-center gap-2 px-1 py-0.5 text-sm text-text-primary">
-                      <input
-                        type="checkbox"
-                        checked={draft.memberIds.includes(u.id)}
-                        onChange={() => toggleMember(u.id)}
-                      />
-                      {userLabel(u)}
-                    </label>
-                  ))}
+                <div className="mb-1 text-sm font-medium text-text-secondary">Membres</div>
+                <p className="mb-2 text-xs text-text-muted">
+                  Un <strong>manager</strong> d'équipe gère le planning de tous les autres membres (récursivement, y compris
+                  les équipes qu'ils managent). Une personne peut être membre de plusieurs équipes.
+                </p>
+                <div className="max-h-52 space-y-0.5 overflow-y-auto rounded-md border border-border bg-bg-tertiary p-2">
+                  {users.map((u) => {
+                    const role = memberRole(u.id);
+                    const isMember = role !== null;
+                    return (
+                      <div key={u.id} className="flex items-center justify-between gap-2 rounded px-1 py-1 hover:bg-bg-hover/50">
+                        <label className="flex items-center gap-2 text-sm text-text-primary">
+                          <input type="checkbox" checked={isMember} onChange={() => toggleMember(u.id)} />
+                          {userLabel(u)}
+                        </label>
+                        {isMember && (
+                          <label
+                            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+                              role === 'manager' ? 'bg-accent/15 text-accent' : 'text-text-muted'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={role === 'manager'}
+                              onChange={(e) => setMemberRole(u.id, e.target.checked ? 'manager' : 'member')}
+                            />
+                            Manager
+                          </label>
+                        )}
+                      </div>
+                    );
+                  })}
                   {users.length === 0 && <div className="px-1 text-sm text-text-muted">Aucun utilisateur.</div>}
                 </div>
               </div>

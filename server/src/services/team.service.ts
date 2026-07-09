@@ -1,5 +1,5 @@
 import { db } from '../db';
-import type { UserTeam, TeamPermission, TeamScope, TeamLevel } from '@obliplan/shared';
+import type { UserTeam, TeamPermission, TeamScope, TeamLevel, TeamMember, TeamMemberRole } from '@obliplan/shared';
 
 interface UserTeamRow {
   id: number;
@@ -14,6 +14,7 @@ interface UserTeamRow {
 interface TeamMembershipRow {
   team_id: number;
   user_id: number;
+  role: TeamMemberRole;
 }
 
 interface TeamPermissionRow {
@@ -174,25 +175,36 @@ export const teamService = {
   },
 
   // ── Members ────────────────────────────────────────────────────────────────
-  async getMembers(teamId: number): Promise<number[]> {
-    const rows = await db<TeamMembershipRow>('team_memberships').where({ team_id: teamId }).select('user_id');
-    return rows.map((r) => r.user_id);
+  async getMembers(teamId: number): Promise<TeamMember[]> {
+    const rows = await db<TeamMembershipRow>('team_memberships').where({ team_id: teamId }).select('user_id', 'role');
+    return rows.map((r) => ({ userId: r.user_id, role: r.role }));
   },
 
-  /** Replace-all: the given userIds become the team's exact membership. */
-  async setMembers(teamId: number, tenantId: number, userIds: number[]): Promise<number[]> {
-    const valid = userIds.length
-      ? (await db('users').where({ tenant_id: tenantId }).whereIn('id', userIds).select('id')).map(
-          (r: { id: number }) => r.id,
+  /** Replace-all: the given members (with roles) become the team's exact membership.
+   *  Only ids that are real tenant users are kept; an unknown role falls back to 'member'. */
+  async setMembers(teamId: number, tenantId: number, members: TeamMember[]): Promise<TeamMember[]> {
+    const requestedIds = members.map((m) => m.userId);
+    const validIds = requestedIds.length
+      ? new Set(
+          (await db('users').where({ tenant_id: tenantId }).whereIn('id', requestedIds).select('id')).map(
+            (r: { id: number }) => r.id,
+          ),
         )
-      : [];
+      : new Set<number>();
+    // De-dupe by userId (last wins) and drop non-members.
+    const byId = new Map<number, TeamMemberRole>();
+    for (const m of members) {
+      if (validIds.has(m.userId)) byId.set(m.userId, m.role === 'manager' ? 'manager' : 'member');
+    }
     await db.transaction(async (trx) => {
       await trx('team_memberships').where({ team_id: teamId }).del();
-      if (valid.length) {
-        await trx('team_memberships').insert(valid.map((userId) => ({ team_id: teamId, user_id: userId })));
+      if (byId.size) {
+        await trx('team_memberships').insert(
+          [...byId].map(([userId, role]) => ({ team_id: teamId, user_id: userId, role })),
+        );
       }
     });
-    return valid;
+    return [...byId].map(([userId, role]) => ({ userId, role }));
   },
 
   // ── Resource scope (permissions) ─────────────────────────────────────────────

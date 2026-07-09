@@ -18,9 +18,20 @@ export interface UserTeam {
   updatedAt: string;
 }
 
+/** Within an administrative team a member is either a plain member or a manager of it.
+ *  A team manager manages every other member (recursively down the management chain). */
+export type TeamMemberRole = 'member' | 'manager';
+
 export interface TeamMembership {
   teamId: number;
   userId: number;
+  role: TeamMemberRole;
+}
+
+/** One team member with their role, as returned/accepted by the team members editor. */
+export interface TeamMember {
+  userId: number;
+  role: TeamMemberRole;
 }
 
 export interface TeamPermission {

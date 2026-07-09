@@ -53,6 +53,7 @@ import type {
   TaskStep,
   SmartList,
   UserTeam,
+  TeamMember,
   TeamPermission,
   LeaveCalendarEntry,
   Notification,
@@ -477,8 +478,8 @@ export const teamApi = {
   update: (id: number, data: { name?: string; description?: string | null; canCreate?: boolean }) =>
     put<UserTeam>(`/teams/${id}`, data),
   remove: (id: number) => del(`/teams/${id}`),
-  members: (id: number) => get<number[]>(`/teams/${id}/members`),
-  setMembers: (id: number, userIds: number[]) => put<number[]>(`/teams/${id}/members`, { userIds }),
+  members: (id: number) => get<TeamMember[]>(`/teams/${id}/members`),
+  setMembers: (id: number, members: TeamMember[]) => put<TeamMember[]>(`/teams/${id}/members`, { members }),
   permissions: (id: number) => get<TeamPermission[]>(`/teams/${id}/permissions`),
   setPermissions: (
     id: number,

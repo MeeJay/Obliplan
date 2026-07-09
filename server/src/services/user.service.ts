@@ -37,11 +37,77 @@ export const userService = {
     return rows.map((r) => ({ id: r.id, displayName: r.display_name, username: r.username }));
   },
 
-  /** Direct reports of a manager who are members of the tenant. */
+  /**
+   * The set of user ids `startUserId` manages in a tenant, following the management graph
+   * TRANSITIVELY (recursively). An edge A→B ("A manages B") exists when:
+   *   - B has A as their direct manager (`users.manager_id = A`), OR
+   *   - A is a 'manager' of an administrative team and B is another member of that team.
+   * The closure follows those edges repeatedly (E→N, N→N's team, …), so a manager sees the
+   * teams managed by the people they manage. Cycle-safe (visited set). Excludes the start user.
+   */
+  async resolveManagedUserIds(startUserId: number, tenantId: number): Promise<Set<number>> {
+    // Edge source 1: direct reports (tenant members with manager_id set).
+    const directRows = await db('users as u')
+      .join('user_tenants as ut', 'ut.user_id', 'u.id')
+      .where('ut.tenant_id', tenantId)
+      .whereNotNull('u.manager_id')
+      .select<{ id: number; manager_id: number }[]>('u.id', 'u.manager_id');
+
+    // Edge source 2: administrative-team memberships (managers → members of the same team).
+    const teamRows = await db('team_memberships as tm')
+      .join('user_teams as t', 't.id', 'tm.team_id')
+      .where('t.tenant_id', tenantId)
+      .select<{ team_id: number; user_id: number; role: string }[]>('tm.team_id', 'tm.user_id', 'tm.role');
+
+    // Build adjacency: managerId → Set(managed ids).
+    const adj = new Map<number, Set<number>>();
+    const link = (from: number, to: number) => {
+      if (from === to) return;
+      let s = adj.get(from);
+      if (!s) adj.set(from, (s = new Set()));
+      s.add(to);
+    };
+    for (const r of directRows) link(r.manager_id, r.id);
+
+    const membersByTeam = new Map<number, number[]>();
+    const managersByTeam = new Map<number, number[]>();
+    for (const r of teamRows) {
+      (membersByTeam.get(r.team_id) ?? membersByTeam.set(r.team_id, []).get(r.team_id)!).push(r.user_id);
+      if (r.role === 'manager')
+        (managersByTeam.get(r.team_id) ?? managersByTeam.set(r.team_id, []).get(r.team_id)!).push(r.user_id);
+    }
+    for (const [teamId, managers] of managersByTeam) {
+      const members = membersByTeam.get(teamId) ?? [];
+      for (const m of managers) for (const u of members) link(m, u); // link() skips self
+    }
+
+    // BFS over the graph from the start user.
+    const managed = new Set<number>();
+    const queue: number[] = [startUserId];
+    const seen = new Set<number>([startUserId]);
+    while (queue.length) {
+      const node = queue.shift()!;
+      for (const next of adj.get(node) ?? []) {
+        if (next !== startUserId) managed.add(next);
+        if (!seen.has(next)) {
+          seen.add(next);
+          queue.push(next);
+        }
+      }
+    }
+    return managed;
+  },
+
+  /**
+   * Everyone a manager manages (transitively, via direct reports AND administrative teams),
+   * returned as full User rows scoped to tenant membership. Ordered by display name.
+   */
   async getTeam(managerId: number, tenantId: number): Promise<User[]> {
+    const ids = await this.resolveManagedUserIds(managerId, tenantId);
+    if (ids.size === 0) return [];
     const rows = await db<UserRow>('users')
       .join('user_tenants', 'users.id', 'user_tenants.user_id')
-      .where('users.manager_id', managerId)
+      .whereIn('users.id', [...ids])
       .andWhere('user_tenants.tenant_id', tenantId)
       .distinct('users.id')
       .select('users.*')
@@ -89,20 +155,20 @@ export const userService = {
     return row ? rowToUser(row) : null;
   },
 
-  /** Can `actor` manage `targetUserId`'s planning? Admin → any; manager → own reports. */
+  /**
+   * Can `actor` manage `targetUserId`'s planning? Admin → any. Otherwise the actor manages
+   * the target when the target is in the actor's TRANSITIVE managed set (direct reports +
+   * administrative teams the actor manages, recursively). Self is never "managed" here
+   * (callers short-circuit self before calling canManage).
+   */
   async canManage(
     actor: { userId: number; role: string },
     targetUserId: number,
     tenantId: number,
   ): Promise<boolean> {
     if (actor.role === 'admin') return true;
-    if (actor.userId === targetUserId) return false; // employees don't manage themselves
-    if (actor.role !== 'manager') return false;
-    const target = await db('users')
-      .join('user_tenants', 'users.id', 'user_tenants.user_id')
-      .where({ 'users.id': targetUserId, 'user_tenants.tenant_id': tenantId })
-      .select('users.manager_id')
-      .first<{ manager_id: number }>();
-    return !!target && target.manager_id === actor.userId;
+    if (actor.userId === targetUserId) return false;
+    const managed = await this.resolveManagedUserIds(actor.userId, tenantId);
+    return managed.has(targetUserId);
   },
 };
