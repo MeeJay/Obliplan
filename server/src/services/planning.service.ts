@@ -257,6 +257,7 @@ export const planningService = {
     shiftIds: number[],
     toUserId: number,
     toDate: string,
+    opts: { spread?: boolean; replace?: boolean } = {},
   ): Promise<{ count: number }> {
     if (shiftIds.length === 0) return { count: 0 };
 
@@ -271,7 +272,9 @@ export const planningService = {
     const canManage = async (targetUserId: number): Promise<boolean> => {
       let ok = manageCache.get(targetUserId);
       if (ok === undefined) {
-        ok = await userService.canManage(actor, targetUserId, tenantId);
+        // OrSelf: callers are gated by planning:write, and a team manager must be able to
+        // copy/paste within their OWN planning (the management closure excludes self).
+        ok = await userService.canManageOrSelf(actor, targetUserId, tenantId);
         manageCache.set(targetUserId, ok);
       }
       return ok;
@@ -281,15 +284,44 @@ export const planningService = {
     // manageable source owner is allowed even if canManage(dest) is false on its own.
     const destManageable = await canManage(toUserId);
 
-    let count = 0;
+    // Resolve every allowed source shift FIRST: the target dates depend on the whole
+    // selection (spread) and the rows to clear depend on the whole target set (replace).
+    const sources: Shift[] = [];
     for (const id of shiftIds) {
       const shift = await shiftService.getById(id, tenantId);
       if (!shift) continue; // wrong tenant / deleted
       if (!(await canManage(shift.userId))) continue; // actor can't manage the source owner
       if (!destManageable && toUserId !== shift.userId) continue; // destination not allowed
+      sources.push(shift);
+    }
+    if (sources.length === 0) return { count: 0 };
+
+    // `spread`: a multi-day copy keeps its shape. Each shift lands on toDate + (its own day -
+    // the earliest day of the selection), so pasting a Mon..Fri block onto a Wednesday spans
+    // Wed..Sun instead of collapsing every hour onto the single target day.
+    const dayOffset = (from: string, to: string): number =>
+      Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
+    const anchor = sources.reduce((min, s) => (s.date < min ? s.date : min), sources[0].date);
+    const targetDateOf = (s: Shift): string =>
+      opts.spread ? addDays(toDate, dayOffset(anchor, s.date)) : toDate;
+
+    // `replace`: "annule et remplace" - wipe the destination's existing shifts on every day
+    // being pasted onto, so the paste never stacks on top of what was already there.
+    if (opts.replace) {
+      const targetDates = [...new Set(sources.map(targetDateOf))];
+      const keptIds = sources.filter((s) => s.userId === toUserId).map((s) => s.id);
+      await db('shifts')
+        .where({ tenant_id: tenantId, user_id: toUserId })
+        .whereIn('date', targetDates)
+        .whereNotIn('id', keptIds.length ? keptIds : [0]) // never delete the very rows being copied
+        .del();
+    }
+
+    let count = 0;
+    for (const shift of sources) {
       await shiftService.create(tenantId, actor.userId, {
         userId: toUserId,
-        date: toDate,
+        date: targetDateOf(shift),
         heureDebut: shift.heureDebut,
         heureFin: shift.heureFin,
         pauseMin: shift.pauseMin,
@@ -302,6 +334,62 @@ export const planningService = {
       count++;
     }
     return { count };
+  },
+
+  /**
+   * Undo support: make (userId, [monday, monday+7)) look EXACTLY like `shifts`.
+   * Every existing shift of that employee in the window is dropped and replaced by the
+   * snapshot the client captured before the mutation it is undoing. Ids are NOT preserved
+   * (the rows are recreated), which is fine for undo since the client refetches after.
+   * Caller must be gated by planning:write; the actor must manage the employee (or be them).
+   */
+  async restoreWeek(
+    tenantId: number,
+    actor: { userId: number; role: string },
+    userId: number,
+    monday: string,
+    shifts: Array<{
+      date: string;
+      heureDebut: string | null;
+      heureFin: string | null;
+      pauseMin: number;
+      type: Shift['type'];
+      statut: Shift['statut'];
+      note: string | null;
+      hourTypeId: number | null;
+      boardId: number | null;
+    }>,
+  ): Promise<{ restored: number }> {
+    const target = await userService.getById(userId, tenantId);
+    if (!target) return { restored: 0 };
+    if (!(await userService.canManageOrSelf(actor, userId, tenantId))) return { restored: 0 };
+
+    const end = addDays(monday, 7);
+    // Only rows inside the snapshot window may be written back, so a stale/forged payload
+    // can never touch another week.
+    const inWindow = shifts.filter((s) => s.date >= monday && s.date < end);
+
+    await db('shifts')
+      .where({ tenant_id: tenantId, user_id: userId })
+      .andWhere('date', '>=', monday)
+      .andWhere('date', '<', end)
+      .del();
+
+    for (const s of inWindow) {
+      await shiftService.create(tenantId, actor.userId, {
+        userId,
+        date: s.date,
+        heureDebut: s.heureDebut,
+        heureFin: s.heureFin,
+        pauseMin: s.pauseMin,
+        type: s.type,
+        statut: s.statut,
+        note: s.note,
+        hourTypeId: s.hourTypeId,
+        boardId: s.boardId,
+      });
+    }
+    return { restored: inWindow.length };
   },
 
   /**

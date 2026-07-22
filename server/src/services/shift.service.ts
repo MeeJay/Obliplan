@@ -59,7 +59,75 @@ export interface ShiftInput {
   boardId?: number | null;
 }
 
+const toMin = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+const toHm = (m: number): string => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
 export const shiftService = {
+  /**
+   * Make room for [start, end) on (userId, date) by carving the TIMED shifts already there,
+   * instead of letting blocks stack on top of each other. Per overlapping shift:
+   *   - fully covered            → deleted
+   *   - overlaps on its right    → its end is pulled back to `start`
+   *   - overlaps on its left     → its start is pushed to `end`
+   *   - strictly contains it     → split in two (4h back + 1h réu in the middle = back / réu / back)
+   * All-day rows (no heure_debut/heure_fin, e.g. leave) are never touched. Returns how many
+   * existing shifts were modified or removed.
+   */
+  async carveOut(
+    tenantId: number,
+    actorId: number,
+    userId: number,
+    date: string,
+    start: string,
+    end: string,
+    excludeId?: number,
+  ): Promise<number> {
+    const s = toMin(start);
+    const e = toMin(end);
+    if (!(e > s)) return 0;
+
+    const rows = await db<ShiftRow>('shifts')
+      .where({ tenant_id: tenantId, user_id: userId, date })
+      .whereNotNull('heure_debut')
+      .whereNotNull('heure_fin');
+
+    let touched = 0;
+    for (const row of rows) {
+      if (excludeId && row.id === excludeId) continue;
+      const os = toMin(row.heure_debut!);
+      const oe = toMin(row.heure_fin!);
+      if (oe <= s || os >= e) continue; // disjoint
+
+      if (os >= s && oe <= e) {
+        await db('shifts').where({ id: row.id }).del();
+      } else if (os < s && oe > e) {
+        // The new block sits INSIDE this one: keep the head, recreate the tail after it.
+        await db('shifts').where({ id: row.id }).update({ heure_fin: toHm(s), updated_by: actorId, updated_at: db.fn.now() });
+        await db('shifts').insert({
+          tenant_id: tenantId,
+          user_id: userId,
+          date,
+          heure_debut: toHm(e),
+          heure_fin: toHm(oe),
+          pause_min: 0,
+          type: row.type,
+          statut: row.statut,
+          note: row.note,
+          hour_type_id: row.hour_type_id,
+          board_id: row.board_id,
+          created_by: actorId,
+          updated_by: actorId,
+        });
+      } else if (os < s) {
+        await db('shifts').where({ id: row.id }).update({ heure_fin: toHm(s), updated_by: actorId, updated_at: db.fn.now() });
+      } else {
+        await db('shifts').where({ id: row.id }).update({ heure_debut: toHm(e), updated_by: actorId, updated_at: db.fn.now() });
+      }
+      touched++;
+    }
+    return touched;
+  },
+
   /** Shifts for a user across the Mon..Sun week starting at `monday`. */
   async getForUserWeek(tenantId: number, userId: number, monday: string): Promise<Shift[]> {
     const end = addDays(monday, 7);

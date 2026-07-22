@@ -5,10 +5,12 @@
 // by the preset. An empty `teamIds` array means "all teams" (no filter).
 // ============================================================================
 
-/** Lightweight id+name pair for a tenant's Axis-C team, used to label filters. */
+/** Lightweight ref for a tenant's Axis-C team, used to label + order planning rows. */
 export interface PlanningTeamRef {
   id: number;
   name: string;
+  /** Ordering weight: lower = higher priority (sorts first). */
+  weight: number;
 }
 
 export interface PlanningView {

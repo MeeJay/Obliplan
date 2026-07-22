@@ -5,6 +5,7 @@ export const createTeamSchema = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(2000).nullable().optional(),
   canCreate: z.boolean().optional(),
+  weight: z.number().int().min(-9999).max(9999).optional(),
 });
 export const updateTeamSchema = createTeamSchema.partial();
 

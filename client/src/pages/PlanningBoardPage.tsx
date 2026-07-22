@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Send, Copy, Clipboard, MousePointerSquareDashed, X, Upload, Trash2 } from 'lucide-react';
+import { Send, Copy, Clipboard, MousePointerSquareDashed, X, Upload, Trash2, RotateCcw, RotateCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { Shift, ShiftTemplate } from '@obliplan/shared';
 import { planningApi, contratApi, hourTypeApi, boardApi, shiftTemplateApi, shiftApi, type UserWeekDTO } from '../api';
@@ -18,6 +18,7 @@ import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { Spinner } from '../components/common/Spinner';
 import { cn } from '../utils/cn';
 import { PlanningTeamFilter, rowVisible, effectiveTeams } from '../components/planning/PlanningTeamFilter';
+import { buildTeamMeta, compareByTeam, teamLabelFor } from '../components/planning/teamOrder';
 
 interface EditorState {
   userId: number;
@@ -28,9 +29,36 @@ interface EditorState {
 type ViewMode = 'grille' | 'semaine';
 type GridRange = 'semaine' | 'mois';
 
+/** One employee-week captured before a mutation; replayed verbatim by undo. */
+interface UndoSnapshot {
+  userId: number;
+  monday: string;
+  shifts: Array<{
+    date: string;
+    heureDebut: string | null;
+    heureFin: string | null;
+    pauseMin: number;
+    type: string;
+    statut: string;
+    note: string | null;
+    hourTypeId: number | null;
+    boardId: number | null;
+  }>;
+}
+interface UndoEntry {
+  label: string;
+  snapshots: UndoSnapshot[];
+}
+/** How many mutations can be walked back. */
+const UNDO_DEPTH = 20;
+
+/** Paste behaviour: stack onto what's there, or wipe the target days first. */
+type PasteMode = 'append' | 'replace';
+
 const HOUR_START_KEY = 'obliplan.planning.hourStart';
 const HOUR_END_KEY = 'obliplan.planning.hourEnd';
 const VISIBLE_TEAMS_KEY = 'obliplan.planning.visibleTeams';
+const PARALLEL_KEY = 'obliplan.planning.parallelMode';
 
 /** Seed the per-team visibility from localStorage (empty set = afficher toutes les équipes). */
 function readVisibleTeams(): Set<number> {
@@ -83,12 +111,20 @@ export function PlanningBoardPage() {
   const [copying, setCopying] = useState(false);
   // Per-team visibility filter (client-side OR-visibility over the single row list). Empty = toutes les équipes.
   const [visibleTeams, setVisibleTeams] = useState<Set<number>>(readVisibleTeams);
+  const [teamMeta, setTeamMeta] = useState(() => buildTeamMeta([]));
   // Copy/paste a whole day (or a hand-picked selection) of shifts.
-  const [clipboard, setClipboard] = useState<{ shiftIds: number[]; label: string } | null>(null);
+  const [clipboard, setClipboard] = useState<{ shiftIds: number[]; label: string; spanDays: number } | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [confirmDeleteSel, setConfirmDeleteSel] = useState(false);
   const [deletingSel, setDeletingSel] = useState(false);
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const [redoStack, setRedoStack] = useState<UndoEntry[]>([]);
+  const [undoing, setUndoing] = useState(false);
+  const [pasteMode, setPasteMode] = useState<PasteMode>('append');
+  // Parallel mode: new/moved blocks sit ON TOP of what's there instead of carving it
+  // (two things happening at once), persisted so the choice survives a reload.
+  const [parallelMode, setParallelMode] = useState(() => localStorage.getItem(PARALLEL_KEY) === '1');
   const canWrite = useAuthStore((s) => s.can('planning:write'));
 
   // "mois" grille = 4 consecutive weeks fetched together; otherwise a single week.
@@ -121,6 +157,28 @@ export function PlanningBoardPage() {
     setSelectedIds(new Set());
   }, [monday, gridRange, view]);
 
+  // Ctrl+Z / Cmd+Z anywhere on the board (ignored while typing in a field).
+  useEffect(() => {
+    if (!canWrite) return;
+    function onKey(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      const isUndo = key === 'z' && !e.shiftKey;
+      const isRedo = (key === 'z' && e.shiftKey) || key === 'y';
+      if (!isUndo && !isRedo) return;
+      // Never steal the shortcut from a field being typed in (the browser's own undo wins there).
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      // Nor while a modal/editor is open, where Ctrl+Z belongs to that context.
+      if (el?.closest('[role="dialog"]')) return;
+      e.preventDefault();
+      void (isUndo ? undoLastRef.current?.() : redoLastRef.current?.());
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [canWrite]);
+
   useEffect(() => {
     contratApi
       .list()
@@ -134,6 +192,10 @@ export function PlanningBoardPage() {
       .list()
       .then((list) => setBoards(Object.fromEntries(list.map((b) => [b.id, { name: b.name }]))))
       .catch(() => setBoards({}));
+    planningApi
+      .teams()
+      .then((teams) => setTeamMeta(buildTeamMeta(teams)))
+      .catch(() => setTeamMeta(buildTeamMeta([])));
     if (canWrite) shiftTemplateApi.list().then(setTemplates).catch(() => setTemplates([]));
   }, [canWrite]);
 
@@ -149,25 +211,148 @@ export function PlanningBoardPage() {
   const monthMode = view === 'grille' && gridRange === 'mois';
   // Weeks currently on screen: 4 stacked in "mois", else just the current week.
   const displayWeeks = monthMode && monthWeeks.length ? monthWeeks : [{ monday, rows }];
+  // Team planning is team-scoped: employees attached to no administrative team are excluded.
+  const hasTeam = (r: UserWeekDTO) => (r.teamIds ?? []).length > 0;
   // Present teams / filter computed over EVERY displayed week so the chips cover the whole view.
-  const allShownRows = displayWeeks.flatMap((w) => w.rows);
+  const allShownRows = displayWeeks.flatMap((w) => w.rows).filter(hasTeam);
   const presentTeamIds = [...new Set(allShownRows.flatMap((r) => r.teamIds ?? []))];
-  const hasNoTeam = allShownRows.some((r) => (r.teamIds ?? []).length === 0);
   // Ignore any persisted team id not present here so a cross-page selection can't blank the grid.
-  const effTeams = effectiveTeams(visibleTeams, presentTeamIds, hasNoTeam);
-  // One row per employee, filtered by OR-visibility (never duplicated per team).
-  const visibleOf = (list: UserWeekDTO[]) => list.filter((r) => rowVisible(r.teamIds ?? [], effTeams));
+  const effTeams = effectiveTeams(visibleTeams, presentTeamIds, false);
+  // One row per employee: team-scoped, OR-visibility filtered, sorted by team (weight, then name).
+  const visibleOf = (list: UserWeekDTO[]) =>
+    list
+      .filter((r) => hasTeam(r) && rowVisible(r.teamIds ?? [], effTeams))
+      .sort((a, b) =>
+        compareByTeam(
+          a.teamIds ?? [],
+          a.user.displayName || a.user.username,
+          b.teamIds ?? [],
+          b.user.displayName || b.user.username,
+          teamMeta,
+        ),
+      );
   const visibleRows = visibleOf(rows);
+  // Small left-hand team label per employee (primary team = lowest weight).
+  const teamLabels: Record<number, string> = {};
+  for (const r of allShownRows) {
+    const label = teamLabelFor(r.teamIds ?? [], teamMeta);
+    if (label) teamLabels[r.user.id] = label;
+  }
   // Drafts across every displayed week so "Publier (N)" matches what you see.
   const draftCount = displayWeeks.reduce(
     (n, w) => n + visibleOf(w.rows).reduce((m, r) => m + r.shifts.filter((s) => s.statut === 'brouillon').length, 0),
     0,
   );
 
+  // ── Undo (Ctrl+Z) ───────────────────────────────────────────────────────────
+  // Each mutation first snapshots the affected employees' displayed week(s). Undo replays
+  // that snapshot through /planning/restore-week, so it survives id changes (a restore
+  // recreates rows) and covers create / resize / move / paste / delete uniformly.
+  const snapshotOf = (r: UserWeekDTO, weekMonday: string): UndoSnapshot => ({
+    userId: r.user.id,
+    monday: weekMonday,
+    shifts: r.shifts.map((s) => ({
+      date: s.date,
+      heureDebut: s.heureDebut,
+      heureFin: s.heureFin,
+      pauseMin: s.pauseMin,
+      type: s.type,
+      statut: s.statut,
+      note: s.note,
+      hourTypeId: s.hourTypeId,
+      boardId: s.boardId,
+    })),
+  });
+
+  function snapshotFor(userIds: number[]): UndoSnapshot[] {
+    const wanted = new Set(userIds);
+    const out: UndoSnapshot[] = [];
+    for (const w of displayWeeks) {
+      for (const r of w.rows) {
+        if (wanted.has(r.user.id)) out.push(snapshotOf(r, w.monday));
+      }
+    }
+    return out;
+  }
+
+  /** Re-capture exactly the (employee, week) pairs of an entry, to build its mirror step. */
+  function recapture(entry: UndoEntry): UndoSnapshot[] {
+    const out: UndoSnapshot[] = [];
+    for (const s of entry.snapshots) {
+      const week = displayWeeks.find((w) => w.monday === s.monday);
+      const row = week?.rows.find((r) => r.user.id === s.userId);
+      if (row && week) out.push(snapshotOf(row, week.monday));
+    }
+    return out;
+  }
+
+  function pushUndo(label: string, userIds: number[]) {
+    const snap = snapshotFor(userIds);
+    if (snap.length === 0) return;
+    setUndoStack((prev) => [...prev.slice(-(UNDO_DEPTH - 1)), { label, snapshots: snap }]);
+    setRedoStack([]); // a fresh mutation invalidates the redo branch (standard behaviour)
+  }
+
+  /** Apply one entry's snapshots, pushing the mirror state onto the opposite stack. */
+  async function applyHistory(entry: UndoEntry, opposite: 'undo' | 'redo'): Promise<void> {
+    const mirror = recapture(entry);
+    for (const s of entry.snapshots) {
+      await planningApi.restoreWeek(s.userId, s.monday, s.shifts);
+    }
+    const push = opposite === 'redo' ? setRedoStack : setUndoStack;
+    if (mirror.length) push((prev) => [...prev.slice(-(UNDO_DEPTH - 1)), { label: entry.label, snapshots: mirror }]);
+    setSelectedIds(new Set());
+    await fetchRows();
+  }
+
+  async function undoLast() {
+    const entry = undoStack[undoStack.length - 1];
+    if (!entry || undoing) return;
+    setUndoing(true);
+    try {
+      await applyHistory(entry, 'redo');
+      setUndoStack((prev) => prev.slice(0, -1));
+      toast.success(`Annulé : ${entry.label}`);
+    } catch {
+      toast.error('Annulation impossible');
+    } finally {
+      setUndoing(false);
+    }
+  }
+
+  async function redoLast() {
+    const entry = redoStack[redoStack.length - 1];
+    if (!entry || undoing) return;
+    setUndoing(true);
+    try {
+      await applyHistory(entry, 'undo');
+      setRedoStack((prev) => prev.slice(0, -1));
+      toast.success(`Rétabli : ${entry.label}`);
+    } catch {
+      toast.error('Rétablissement impossible');
+    } finally {
+      setUndoing(false);
+    }
+  }
+  // Keep the keyboard handlers pointing at the freshest closures (stacks + current week).
+  const undoLastRef = useRef<(() => Promise<void>) | null>(null);
+  const redoLastRef = useRef<(() => Promise<void>) | null>(null);
+  undoLastRef.current = undoLast;
+  redoLastRef.current = redoLast;
+
   // ── Hourly-grid (Grille horaire) callbacks → existing endpoints ──────────────
   async function handleDraw(userId: number, date: string, heureDebut: string, heureFin: string) {
     try {
-      const created = await shiftApi.create({ userId, date, heureDebut, heureFin, type: 'travail', statut: 'brouillon' });
+      pushUndo('création du créneau', [userId]);
+      const created = await shiftApi.create({
+        userId,
+        date,
+        heureDebut,
+        heureFin,
+        type: 'travail',
+        statut: 'brouillon',
+        carve: !parallelMode,
+      });
       await fetchRows();
       setQuickShift(created); // open the quick editor so the manager tags it immediately
     } catch {
@@ -178,9 +363,18 @@ export function PlanningBoardPage() {
   // Same slot drawn across several employees at once → one draft each (no quick editor).
   async function handleDrawMany(userIds: number[], date: string, heureDebut: string, heureFin: string) {
     try {
+      pushUndo(`${userIds.length} créneaux créés`, userIds);
       await Promise.all(
         userIds.map((userId) =>
-          shiftApi.create({ userId, date, heureDebut, heureFin, type: 'travail', statut: 'brouillon' }),
+          shiftApi.create({
+            userId,
+            date,
+            heureDebut,
+            heureFin,
+            type: 'travail',
+            statut: 'brouillon',
+            carve: !parallelMode,
+          }),
         ),
       );
       toast.success(`${userIds.length} créneaux créés`);
@@ -192,7 +386,8 @@ export function PlanningBoardPage() {
 
   async function handleResize(shift: Shift, heureDebut: string, heureFin: string) {
     try {
-      await shiftApi.update(shift.id, { heureDebut, heureFin });
+      pushUndo('redimensionnement', [shift.userId]);
+      await shiftApi.update(shift.id, { heureDebut, heureFin, carve: !parallelMode });
       await fetchRows();
     } catch {
       toast.error('Redimensionnement impossible');
@@ -203,7 +398,8 @@ export function PlanningBoardPage() {
     const dur = shift.heureDebut && shift.heureFin ? toMin(shift.heureFin) - toMin(shift.heureDebut) : 60;
     const heureFin = toTime(toMin(heureDebut) + Math.max(30, dur)); // keep original duration
     try {
-      await shiftApi.update(shift.id, { userId, date, heureDebut, heureFin });
+      pushUndo('déplacement', [shift.userId, userId]);
+      await shiftApi.update(shift.id, { userId, date, heureDebut, heureFin, carve: !parallelMode });
       await fetchRows();
     } catch {
       toast.error('Déplacement impossible');
@@ -218,6 +414,7 @@ export function PlanningBoardPage() {
     if (d.kind === 'shift') {
       if (d.userId === userId && d.date === date) return; // dropped on origin - no-op
       try {
+        pushUndo('déplacement', [d.userId, userId]);
         await shiftApi.update(d.shiftId, { userId, date });
         fetchRows();
       } catch {
@@ -294,13 +491,23 @@ export function PlanningBoardPage() {
       .filter((s) => s.date === date);
     if (!who || dayShifts.length === 0) return;
     const name = who.displayName || who.username;
-    setClipboard({ shiftIds: dayShifts.map((s) => s.id), label: `${dayLabel(date)} - ${name} (${dayShifts.length})` });
+    setClipboard({
+      shiftIds: dayShifts.map((s) => s.id),
+      label: `${dayLabel(date)} - ${name} (${dayShifts.length})`,
+      spanDays: 1,
+    });
   }
 
   async function pasteOnto(userId: number, date: string) {
     if (!clipboard) return;
     try {
-      const { count } = await planningApi.cloneShifts(clipboard.shiftIds, userId, date);
+      pushUndo(pasteMode === 'replace' ? 'collage (remplacement)' : 'collage', [userId]);
+      // A copy spanning several days keeps its shape: the server re-spreads each shift from
+      // the target day instead of collapsing the whole block onto it.
+      const { count } = await planningApi.cloneShifts(clipboard.shiftIds, userId, date, {
+        spread: clipboard.spanDays > 1,
+        replace: pasteMode === 'replace',
+      });
       if (count === 0) toast('Aucun créneau à coller (source supprimée ?)');
       else toast.success(`${count} créneau(x) collé(s)`);
       fetchRows();
@@ -327,7 +534,15 @@ export function PlanningBoardPage() {
 
   function copySelection() {
     if (selectedIds.size === 0) return;
-    setClipboard({ shiftIds: [...selectedIds], label: `Sélection (${selectedIds.size})` });
+    // Count the distinct days covered: >1 means the paste must re-spread instead of collapsing.
+    const days = new Set(
+      allShownRows.flatMap((r) => r.shifts.filter((s) => selectedIds.has(s.id)).map((s) => s.date)),
+    );
+    setClipboard({
+      shiftIds: [...selectedIds],
+      label: `Sélection (${selectedIds.size})`,
+      spanDays: Math.max(1, days.size),
+    });
   }
 
   // Rubber-band result from the grid: replace (or extend, when additive) the picks.
@@ -344,6 +559,8 @@ export function PlanningBoardPage() {
     if (ids.length === 0) return;
     setDeletingSel(true);
     try {
+      const owners = allShownRows.filter((r) => r.shifts.some((s) => selectedIds.has(s.id))).map((r) => r.user.id);
+      pushUndo(`${ids.length} créneaux supprimés`, owners);
       await Promise.all(ids.map((id) => shiftApi.remove(id)));
       toast.success(`${ids.length} créneau(x) supprimé(s)`);
       setSelectedIds(new Set());
@@ -361,6 +578,7 @@ export function PlanningBoardPage() {
     <HourGrid
       days={gDays}
       rows={gRows}
+      teamLabels={teamLabels}
       holidays={gHolidays}
       hourStart={hourStart}
       hourEnd={Math.max(hourStart + 1, hourEnd)}
@@ -388,6 +606,44 @@ export function PlanningBoardPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold text-text-primary">Tableau planning</h2>
         <div className="flex flex-wrap items-center gap-2">
+          {canWrite && (
+            <div className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => void undoLast()}
+                disabled={undoStack.length === 0 || undoing}
+                title={
+                  undoStack.length
+                    ? `Annuler : ${undoStack[undoStack.length - 1].label} (Ctrl+Z)`
+                    : 'Rien à annuler (Ctrl+Z)'
+                }
+                aria-label="Annuler"
+                className={cn(
+                  'rounded-md border border-border bg-bg-secondary p-2 text-text-secondary transition-colors',
+                  'hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40',
+                )}
+              >
+                <RotateCcw size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => void redoLast()}
+                disabled={redoStack.length === 0 || undoing}
+                title={
+                  redoStack.length
+                    ? `Rétablir : ${redoStack[redoStack.length - 1].label} (Ctrl+Maj+Z)`
+                    : 'Rien à rétablir (Ctrl+Maj+Z)'
+                }
+                aria-label="Rétablir"
+                className={cn(
+                  'rounded-md border border-border bg-bg-secondary p-2 text-text-secondary transition-colors',
+                  'hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40',
+                )}
+              >
+                <RotateCw size={15} />
+              </button>
+            </div>
+          )}
           {canWrite && (
             <Button variant="secondary" onClick={() => navigate('/import-planning')}>
               <Upload size={15} className="mr-1" /> Importer CSV
@@ -427,10 +683,37 @@ export function PlanningBoardPage() {
 
         <PlanningTeamFilter
           presentTeamIds={presentTeamIds}
-          hasNoTeam={hasNoTeam}
+          hasNoTeam={false}
           value={visibleTeams}
           onChange={setVisibleTeams}
         />
+
+        {canWrite && (
+          <label
+            className={cn(
+              'inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors',
+              parallelMode
+                ? 'border-accent/50 bg-accent/10 text-accent'
+                : 'border-border bg-bg-secondary text-text-secondary hover:text-text-primary',
+            )}
+            title={
+              parallelMode
+                ? 'Les nouveaux créneaux se superposent à ceux déjà présents (deux activités en même temps).'
+                : "Par défaut un nouveau créneau découpe celui qu'il recouvre (4h de back + 1h de réu = back / réu / back)."
+            }
+          >
+            <input
+              type="checkbox"
+              checked={parallelMode}
+              onChange={(e) => {
+                setParallelMode(e.target.checked);
+                localStorage.setItem(PARALLEL_KEY, e.target.checked ? '1' : '0');
+              }}
+              className="h-3 w-3"
+            />
+            Créneaux en parallèle
+          </label>
+        )}
 
         {view === 'grille' && (
           <>
@@ -566,6 +849,31 @@ export function PlanningBoardPage() {
           <span className="text-text-secondary">
             <span className="font-medium text-text-primary">{clipboard.label}</span> copié(s) - cliquez « Coller » sur une
             journée.
+            {clipboard.spanDays > 1 && (
+              <span className="ml-1 text-text-muted">
+                Les {clipboard.spanDays} jours copiés seront replacés à partir du jour cible.
+              </span>
+            )}
+          </span>
+          <span className="inline-flex items-center overflow-hidden rounded border border-border">
+            {(['append', 'replace'] as PasteMode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setPasteMode(m)}
+                title={
+                  m === 'append'
+                    ? 'Ajoute les créneaux collés à ceux déjà présents'
+                    : 'Annule et remplace : efface les créneaux des journées visées avant de coller'
+                }
+                className={cn(
+                  'px-2 py-0.5 text-xs transition-colors',
+                  pasteMode === m ? 'bg-accent/15 font-medium text-accent' : 'text-text-secondary hover:text-text-primary',
+                )}
+              >
+                {m === 'append' ? 'Ajouter' : 'Remplacer'}
+              </button>
+            ))}
           </span>
           <button
             type="button"
@@ -604,6 +912,7 @@ export function PlanningBoardPage() {
         <RotaGrid
           monday={monday}
           rows={visibleRows}
+          teamLabels={teamLabels}
           holidays={rows[0]?.holidays}
           contrats={contrats}
           hourTypes={hourTypes}

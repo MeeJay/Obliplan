@@ -14,6 +14,8 @@ export interface UserTeam {
   description: string | null;
   /** Members of this team may create new projects. */
   canCreate: boolean;
+  /** Ordering weight: lower = higher priority (sorts first in team planning grids). */
+  weight: number;
   createdAt: string;
   updatedAt: string;
 }

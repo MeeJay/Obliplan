@@ -32,6 +32,29 @@ export const cloneShiftsSchema = z.object({
   shiftIds: z.array(z.number().int().positive()).min(1),
   toUserId: z.number().int().positive(),
   toDate: isoDate,
+  /** Keep a multi-day copy's shape: each shift lands on toDate + its offset from the earliest copied day. */
+  spread: z.boolean().optional(),
+  /** "Annule et remplace": clear the destination's existing shifts on every pasted day first. */
+  replace: z.boolean().optional(),
+});
+
+/** Undo: rewrite one employee's week to the snapshot the client captured before a mutation. */
+export const restoreWeekSchema = z.object({
+  userId: z.number().int().positive(),
+  monday: isoDate,
+  shifts: z.array(
+    z.object({
+      date: isoDate,
+      heureDebut: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).nullable(),
+      heureFin: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).nullable(),
+      pauseMin: z.number().int().min(0).default(0),
+      type: shiftTypeFull,
+      statut: shiftStatut,
+      note: z.string().nullable().optional(),
+      hourTypeId: z.number().int().positive().nullable().optional(),
+      boardId: z.number().int().positive().nullable().optional(),
+    }),
+  ),
 });
 
 // ── Contrats ──────────────────────────────────────────────────────────────────
@@ -93,6 +116,8 @@ export const createShiftSchema = z.object({
   note: z.string().max(2000).nullable().optional(),
   hourTypeId: z.number().int().positive().nullable().optional(),
   boardId: z.number().int().positive().nullable().optional(),
+  /** Carve overlapping shifts instead of stacking on them (default true; false = keep the overlap). */
+  carve: z.boolean().optional(),
 });
 // userId stays writable so a manager can reassign (drag-move) a shift to another employee.
 export const updateShiftSchema = createShiftSchema.partial();

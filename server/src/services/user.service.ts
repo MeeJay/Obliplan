@@ -179,4 +179,21 @@ export const userService = {
     const managed = await this.resolveManagedUserIds(actor.userId, tenantId);
     return managed.has(targetUserId);
   },
+
+  /**
+   * Like `canManage`, but the actor ALSO passes on their own planning. Use ONLY on routes
+   * already gated by a write capability (e.g. `planning:write`), so a plain employee - who
+   * holds no such capability - still cannot edit their own schedule. This is what lets a team
+   * manager who is a member of the team they manage fill in their OWN planning: the management
+   * closure deliberately excludes self, so `canManage` alone would refuse it.
+   * NEVER use this for approval flows (leave, overtime): self-approval must stay impossible.
+   */
+  async canManageOrSelf(
+    actor: { userId: number; role: string },
+    targetUserId: number,
+    tenantId: number,
+  ): Promise<boolean> {
+    if (actor.userId === targetUserId) return true;
+    return this.canManage(actor, targetUserId, tenantId);
+  },
 };

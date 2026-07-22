@@ -88,7 +88,7 @@ export const planningController = {
   async teams(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const teams = await teamService.getAll(req.tenantId);
-      const data: PlanningTeamRef[] = teams.map((t) => ({ id: t.id, name: t.name }));
+      const data: PlanningTeamRef[] = teams.map((t) => ({ id: t.id, name: t.name, weight: t.weight }));
       res.json({ success: true, data });
     } catch (err) {
       next(err);
@@ -109,8 +109,32 @@ export const planningController = {
   /** POST /planning/clone-shifts - clone selected shifts onto another (employee, day) as drafts. planning:write. */
   async cloneShifts(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { shiftIds, toUserId, toDate } = req.body as { shiftIds: number[]; toUserId: number; toDate: string };
-      const data = await planningService.cloneShifts(req.tenantId, actor(req), shiftIds, toUserId, toDate);
+      const { shiftIds, toUserId, toDate, spread, replace } = req.body as {
+        shiftIds: number[];
+        toUserId: number;
+        toDate: string;
+        spread?: boolean;
+        replace?: boolean;
+      };
+      const data = await planningService.cloneShifts(req.tenantId, actor(req), shiftIds, toUserId, toDate, {
+        spread,
+        replace,
+      });
+      res.json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /** POST /planning/restore-week - undo: rewrite one employee's week to a client snapshot. planning:write. */
+  async restoreWeek(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId, monday, shifts } = req.body as {
+        userId: number;
+        monday: string;
+        shifts: Parameters<typeof planningService.restoreWeek>[4];
+      };
+      const data = await planningService.restoreWeek(req.tenantId, actor(req), userId, monday, shifts);
       res.json({ success: true, data });
     } catch (err) {
       next(err);

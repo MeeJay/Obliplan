@@ -21,11 +21,12 @@ interface Draft {
   name: string;
   description: string;
   canCreate: boolean;
+  weight: number;
   members: TeamMember[];
   perms: PermRow[];
 }
 
-const EMPTY: Draft = { name: '', description: '', canCreate: false, members: [], perms: [] };
+const EMPTY: Draft = { name: '', description: '', canCreate: false, weight: 0, members: [], perms: [] };
 
 const SCOPE_LABEL: Record<TeamScope, string> = {
   all: 'Toutes les ressources',
@@ -80,6 +81,7 @@ export function TeamsPage() {
       name: team.name,
       description: team.description ?? '',
       canCreate: team.canCreate,
+      weight: team.weight ?? 0,
       members,
       perms: perms.map((p) => ({ scope: p.scope, scopeId: p.scopeId, level: p.level })),
     });
@@ -136,7 +138,12 @@ export function TeamsPage() {
     }
     setSaving(true);
     try {
-      const fields = { name: draft.name.trim(), description: draft.description || null, canCreate: draft.canCreate };
+      const fields = {
+        name: draft.name.trim(),
+        description: draft.description || null,
+        canCreate: draft.canCreate,
+        weight: Number.isFinite(draft.weight) ? draft.weight : 0,
+      };
       const team = draft.id ? await teamApi.update(draft.id, fields) : await teamApi.create(fields);
       await teamApi.setMembers(team.id, draft.members);
       await teamApi.setPermissions(
@@ -243,6 +250,18 @@ export function TeamsPage() {
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               />
+              <div className="space-y-1">
+                <label className="block text-sm font-medium text-text-secondary">Ordre (poids)</label>
+                <input
+                  type="number"
+                  value={draft.weight}
+                  onChange={(e) => setDraft({ ...draft, weight: e.target.value === '' ? 0 : Number(e.target.value) })}
+                  className="w-28 rounded-md border border-border bg-bg-tertiary px-3 py-2 text-sm text-text-primary"
+                />
+                <p className="text-xs text-text-muted">
+                  Poids le plus faible en premier dans « Planning équipe » et « Vue équipe ».
+                </p>
+              </div>
               <div className="space-y-1">
                 <label className="block text-sm font-medium text-text-secondary">Description (optionnel)</label>
                 <textarea

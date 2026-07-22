@@ -12,6 +12,7 @@ import { Card } from '../components/common/Card';
 import { Spinner } from '../components/common/Spinner';
 import { cn } from '../utils/cn';
 import { PlanningTeamFilter, rowVisible, effectiveTeams } from '../components/planning/PlanningTeamFilter';
+import { buildTeamMeta, compareByTeam, teamLabelFor } from '../components/planning/teamOrder';
 
 const VISIBLE_TEAMS_KEY = 'obliplan.planning.visibleTeams';
 
@@ -38,6 +39,7 @@ export function TeamOverviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [visibleTeams, setVisibleTeams] = useState<Set<number>>(readVisibleTeams);
+  const [teamMeta, setTeamMeta] = useState(() => buildTeamMeta([]));
 
   // Hour-type colours drive the chip colour (same approach as the editable rota); optional.
   useEffect(() => {
@@ -47,6 +49,10 @@ export function TeamOverviewPage() {
         setHourTypes(Object.fromEntries(list.map((h) => [h.id, { libelle: h.libelle, color: h.color }]))),
       )
       .catch(() => setHourTypes({}));
+    planningApi
+      .teams()
+      .then((teams) => setTeamMeta(buildTeamMeta(teams)))
+      .catch(() => setTeamMeta(buildTeamMeta([])));
   }, []);
 
   useEffect(() => {
@@ -67,13 +73,17 @@ export function TeamOverviewPage() {
   const days = Array.from({ length: 7 }, (_, i) => addDaysIso(monday, i));
   // Week-level public holidays (tenant-wide) - purely a visual day-marker, never blocks a shift.
   const holidays = data?.holidays ?? [];
-  const members = data?.members ?? [];
+  // Team planning is team-scoped: employees attached to no administrative team are excluded.
+  const members = (data?.members ?? []).filter((m) => (m.teamIds ?? []).length > 0);
   const presentTeamIds = [...new Set(members.flatMap((m) => m.teamIds ?? []))];
-  const hasNoTeam = members.some((m) => (m.teamIds ?? []).length === 0);
   // Ignore any persisted team id not present here so a cross-page selection can't blank the table.
-  const effTeams = effectiveTeams(visibleTeams, presentTeamIds, hasNoTeam);
-  // One member row per employee, filtered by OR-visibility (never duplicated per team).
-  const visibleMembers = members.filter((m) => rowVisible(m.teamIds ?? [], effTeams));
+  const effTeams = effectiveTeams(visibleTeams, presentTeamIds, false);
+  // One member row per employee, filtered by OR-visibility, sorted by team (weight, then name).
+  const visibleMembers = members
+    .filter((m) => rowVisible(m.teamIds ?? [], effTeams))
+    .sort((a, b) =>
+      compareByTeam(a.teamIds ?? [], a.displayName ?? a.username, b.teamIds ?? [], b.displayName ?? b.username, teamMeta),
+    );
 
   return (
     <div className="space-y-5">
@@ -90,7 +100,7 @@ export function TeamOverviewPage() {
 
       <PlanningTeamFilter
         presentTeamIds={presentTeamIds}
-        hasNoTeam={hasNoTeam}
+        hasNoTeam={false}
         value={visibleTeams}
         onChange={setVisibleTeams}
       />
@@ -138,6 +148,11 @@ export function TeamOverviewPage() {
                     <span className="block truncate text-sm font-medium text-text-primary">
                       {m.displayName || m.username}
                     </span>
+                    {teamLabelFor(m.teamIds ?? [], teamMeta) && (
+                      <span className="mt-0.5 block truncate text-[10px] uppercase tracking-wide text-text-muted">
+                        {teamLabelFor(m.teamIds ?? [], teamMeta)}
+                      </span>
+                    )}
                   </th>
                   {days.map((iso) => {
                     const cellShifts = m.shifts.filter((s) => s.date === iso);

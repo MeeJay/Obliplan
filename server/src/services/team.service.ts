@@ -7,6 +7,7 @@ interface UserTeamRow {
   name: string;
   description: string | null;
   can_create: boolean;
+  weight: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -36,6 +37,7 @@ export function rowToTeam(r: UserTeamRow): UserTeam {
     name: r.name,
     description: r.description ?? null,
     canCreate: r.can_create,
+    weight: r.weight ?? 0,
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),
   };
@@ -58,6 +60,7 @@ export interface TeamInput {
   name: string;
   description?: string | null;
   canCreate?: boolean;
+  weight?: number;
 }
 
 export interface TeamPermissionInput {
@@ -90,7 +93,9 @@ export interface ScopeContext {
 
 export const teamService = {
   async getAll(tenantId: number): Promise<UserTeam[]> {
-    const rows = await db<UserTeamRow>('user_teams').where({ tenant_id: tenantId }).orderBy('name');
+    const rows = await db<UserTeamRow>('user_teams')
+      .where({ tenant_id: tenantId })
+      .orderBy([{ column: 'weight' }, { column: 'name' }]);
     return rows.map(rowToTeam);
   },
 
@@ -106,6 +111,7 @@ export const teamService = {
         name: data.name,
         description: data.description ?? null,
         can_create: data.canCreate ?? false,
+        weight: data.weight ?? 0,
       })
       .returning('*');
     return rowToTeam(row);
@@ -116,6 +122,7 @@ export const teamService = {
     if (data.name !== undefined) patch.name = data.name;
     if (data.description !== undefined) patch.description = data.description;
     if (data.canCreate !== undefined) patch.can_create = data.canCreate;
+    if (data.weight !== undefined) patch.weight = data.weight;
     const [row] = await db<UserTeamRow>('user_teams')
       .where({ id, tenant_id: tenantId })
       .update(patch)

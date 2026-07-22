@@ -268,8 +268,28 @@ export const planningApi = {
   teams: () => get<PlanningTeamRef[]>('/planning/teams'),
   copyWeek: (fromMonday: string, toMonday: string, userIds: number[]) =>
     post<{ count: number }>('/planning/copy-week', { fromMonday, toMonday, userIds }),
-  cloneShifts: (shiftIds: number[], toUserId: number, toDate: string) =>
-    post<{ count: number }>('/planning/clone-shifts', { shiftIds, toUserId, toDate }),
+  cloneShifts: (
+    shiftIds: number[],
+    toUserId: number,
+    toDate: string,
+    opts?: { spread?: boolean; replace?: boolean },
+  ) => post<{ count: number }>('/planning/clone-shifts', { shiftIds, toUserId, toDate, ...opts }),
+  /** Undo: rewrite one employee's week to a snapshot captured before a mutation. */
+  restoreWeek: (
+    userId: number,
+    monday: string,
+    shifts: Array<{
+      date: string;
+      heureDebut: string | null;
+      heureFin: string | null;
+      pauseMin: number;
+      type: string;
+      statut: string;
+      note: string | null;
+      hourTypeId: number | null;
+      boardId: number | null;
+    }>,
+  ) => post<{ restored: number }>('/planning/restore-week', { userId, monday, shifts }),
   publish: (monday: string, userIds: number[]) =>
     post<{ published: number; notified: number }>('/planning/publish', { monday, userIds }),
   // CSV import - parse+preview then apply (creates drafts). Gated planning:write.
@@ -286,8 +306,10 @@ export const planningViewApi = {
 };
 
 export const shiftApi = {
-  create: (data: Partial<Shift>) => post<Shift>('/shifts', data),
-  update: (id: number, data: Partial<Shift>) => put<Shift>(`/shifts/${id}`, data),
+  // `carve` (default true server-side) slices the shifts already on that slot instead of
+  // stacking; pass carve:false to deliberately create a parallel/overlapping entry.
+  create: (data: Partial<Shift> & { carve?: boolean }) => post<Shift>('/shifts', data),
+  update: (id: number, data: Partial<Shift> & { carve?: boolean }) => put<Shift>(`/shifts/${id}`, data),
   remove: (id: number) => del(`/shifts/${id}`),
 };
 
@@ -481,8 +503,9 @@ export const taskApi = {
 
 export const teamApi = {
   list: () => get<UserTeam[]>('/teams'),
-  create: (data: { name: string; description?: string | null; canCreate?: boolean }) => post<UserTeam>('/teams', data),
-  update: (id: number, data: { name?: string; description?: string | null; canCreate?: boolean }) =>
+  create: (data: { name: string; description?: string | null; canCreate?: boolean; weight?: number }) =>
+    post<UserTeam>('/teams', data),
+  update: (id: number, data: { name?: string; description?: string | null; canCreate?: boolean; weight?: number }) =>
     put<UserTeam>(`/teams/${id}`, data),
   remove: (id: number) => del(`/teams/${id}`),
   members: (id: number) => get<TeamMember[]>(`/teams/${id}/members`),

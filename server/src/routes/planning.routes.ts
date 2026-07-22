@@ -4,7 +4,7 @@ import { planningImportController } from '../controllers/planningImport.controll
 import { planningViewController } from '../controllers/planningView.controller';
 import { requireTenantCapability } from '../middleware/rbac';
 import { validate } from '../middleware/validate';
-import { cloneShiftsSchema, copyWeekSchema, publishWeekSchema } from '../validators/schemas';
+import { cloneShiftsSchema, copyWeekSchema, publishWeekSchema, restoreWeekSchema } from '../validators/schemas';
 
 const router = Router();
 
@@ -22,6 +22,7 @@ router.put('/views/:id', requireTenantCapability('planning:view_team'), planning
 router.delete('/views/:id', requireTenantCapability('planning:view_team'), planningViewController.remove);
 router.post('/copy-week', requireTenantCapability('planning:write'), validate(copyWeekSchema), planningController.copyWeek);
 router.post('/clone-shifts', requireTenantCapability('planning:write'), validate(cloneShiftsSchema), planningController.cloneShifts);
+router.post('/restore-week', requireTenantCapability('planning:write'), validate(restoreWeekSchema), planningController.restoreWeek);
 router.post('/publish', requireTenantCapability('planning:write'), validate(publishWeekSchema), planningController.publish);
 router.post('/import/preview', requireTenantCapability('planning:write'), planningImportController.preview);
 router.post('/import/apply', requireTenantCapability('planning:write'), planningImportController.apply);

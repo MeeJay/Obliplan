@@ -23,6 +23,8 @@ export interface HourGridProps {
   days: string[];
   /** Employees + their shifts (already loaded by the page). */
   rows: UserWeekDTO[];
+  /** Optional micro team label per employee id, shown under the name (no grouping). */
+  teamLabels?: Record<number, string>;
   /** First hour column, e.g. 8. */
   hourStart: number;
   /** Exclusive end label - columns rendered are hourStart..hourEnd-1, e.g. 20. */
@@ -94,6 +96,7 @@ type Marquee = null | { x0: number; y0: number; x1: number; y1: number };
 export function HourGrid({
   days,
   rows,
+  teamLabels,
   hourStart,
   hourEnd,
   hourTypes,
@@ -652,6 +655,11 @@ export function HourGrid({
                   >
                     {minToSignedHm(row.counter.ecartMin)}
                   </span>
+                  {teamLabels?.[row.user.id] && (
+                    <span className="block truncate text-[10px] uppercase tracking-wide text-text-muted">
+                      {teamLabels[row.user.id]}
+                    </span>
+                  )}
                 </span>
               </div>
               {days.map((date) => renderTrack(row, date))}

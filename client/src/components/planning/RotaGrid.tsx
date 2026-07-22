@@ -21,6 +21,8 @@ export interface ContratInfo {
 interface RotaGridProps {
   monday: string;
   rows: UserWeekDTO[];
+  /** Optional micro team label per employee id, shown under the name (no grouping). */
+  teamLabels?: Record<number, string>;
   contrats: Record<number, ContratInfo>;
   hourTypes: HourTypeLookup;
   boards: BoardLookup;
@@ -48,6 +50,7 @@ const cellKey = (userId: number, date: string) => `${userId}:${date}`;
 export function RotaGrid({
   monday,
   rows,
+  teamLabels,
   contrats,
   hourTypes,
   boards,
@@ -124,6 +127,11 @@ export function RotaGrid({
                       >
                         {minToSignedHm(row.counter.ecartMin)}
                       </span>
+                      {teamLabels?.[row.user.id] && (
+                        <span className="block truncate text-[10px] uppercase tracking-wide text-text-muted">
+                          {teamLabels[row.user.id]}
+                        </span>
+                      )}
                     </span>
                   </span>
                 </th>
