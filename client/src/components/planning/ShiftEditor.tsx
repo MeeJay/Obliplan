@@ -30,6 +30,9 @@ export function ShiftEditor({ userId, date, shift, onClose, onSaved }: ShiftEdit
   const [clients, setClients] = useState<Client[]>([]);
   const [templates, setTemplates] = useState<ShiftTemplate[]>([]);
   const [saving, setSaving] = useState(false);
+  // "Occurrence en parallèle": when on, this timed shift is layered ON TOP of any overlapping
+  // shift instead of carving it (two activities at once). Off = default carve behaviour.
+  const [parallel, setParallel] = useState(false);
   // Inline "+ Nouveau projet" - create a board on the fly and select it. The "clé à molette"
   // (wrench) reveals an optional client to rattacher the new project; name-only stays the default.
   const [creatingBoard, setCreatingBoard] = useState(false);
@@ -81,7 +84,7 @@ export function ShiftEditor({ userId, date, shift, onClose, onSaved }: ShiftEdit
   async function save() {
     setSaving(true);
     try {
-      const payload: Partial<Shift> = {
+      const payload: Partial<Shift> & { carve?: boolean } = {
         userId,
         date,
         type,
@@ -92,6 +95,8 @@ export function ShiftEditor({ userId, date, shift, onClose, onSaved }: ShiftEdit
         hourTypeId: isWork ? hourTypeId : null,
         boardId: isWork ? boardId : null,
         note: note || null,
+        // A timed shift carves overlaps by default; parallel mode keeps them side by side.
+        carve: isWork ? !parallel : false,
       };
       if (shift) await shiftApi.update(shift.id, payload);
       else await shiftApi.create(payload);
@@ -260,6 +265,22 @@ export function ShiftEditor({ userId, date, shift, onClose, onSaved }: ShiftEdit
                 </div>
               </div>
             </>
+          )}
+          {isWork && (
+            <label className="flex items-start gap-2 rounded-md border border-border bg-bg-tertiary px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                checked={parallel}
+                onChange={(e) => setParallel(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-medium text-text-primary">Occurrence en parallèle</span>
+                <span className="mt-0.5 block text-xs text-text-muted">
+                  Superpose ce créneau à ceux déjà présents au lieu de les découper (deux activités en même temps).
+                </span>
+              </span>
+            </label>
           )}
           <Select label="Statut" value={statut} onChange={(e) => setStatut(e.target.value as ShiftStatus)}>
             <option value="brouillon">Brouillon</option>

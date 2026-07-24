@@ -66,10 +66,38 @@ export interface HourGridProps {
 // ── Layout constants (px) ─────────────────────────────────────────────────────
 const LABEL_W = 208; // sticky employee column
 const HOUR_W = 54; // one hour column
-const ROW_H = 56; // one (employee, day) track
+const ROW_H = 64; // minimum height of one (employee, day) track (1 concurrency lane)
+const LANE_H = 30; // height added per extra concurrency lane (parallel/overlapping shifts)
 const DRAG_THRESHOLD = 4; // px of movement before a body press counts as a drag
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * Assign each timed shift to a horizontal "lane" so concurrent (overlapping) shifts stack
+ * vertically inside the track instead of being drawn on top of one another. Greedy interval
+ * partitioning: a shift reuses the first lane whose last shift already ended, else opens a new
+ * lane. `laneCount` is the max simultaneous overlap = how many rows the track must be split into.
+ */
+function computeLanes(timed: Shift[]): { laneOf: Map<number, number>; laneCount: number } {
+  const items = timed
+    .filter((s) => s.heureDebut && s.heureFin)
+    .map((s) => ({ id: s.id, st: hhmmToMin(s.heureDebut!), en: hhmmToMin(s.heureFin!) }))
+    .sort((a, b) => a.st - b.st || a.en - b.en);
+  const laneEnds: number[] = [];
+  const laneOf = new Map<number, number>();
+  for (const it of items) {
+    let lane = laneEnds.findIndex((end) => end <= it.st);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(it.en);
+    } else {
+      laneEnds[lane] = it.en;
+    }
+    laneOf.set(it.id, lane);
+  }
+  return { laneOf, laneCount: Math.max(1, laneEnds.length) };
+}
+const EMPTY_LANES = { laneOf: new Map<number, number>(), laneCount: 1 };
 
 // ── Live interaction state ────────────────────────────────────────────────────
 type Drag =
@@ -314,7 +342,7 @@ export function HourGrid({
   const onAnyCancel = () => setDrag(null);
 
   // ── Block rendering ─────────────────────────────────────────────────────────
-  function renderTimed(s: Shift, isDragShift: boolean) {
+  function renderTimed(s: Shift, isDragShift: boolean, lane = 0, laneCount = 1) {
     const liveResize = isDragShift && drag?.kind === 'resize';
     const startMin = liveResize ? drag.startMin : hhmmToMin(s.heureDebut!);
     const endMin = liveResize ? drag.endMin : hhmmToMin(s.heureFin!);
@@ -332,9 +360,13 @@ export function HourGrid({
     const isMoving = isDragShift && drag?.kind === 'move' && drag.moved;
     const selected = selectMode && !!selectedIds?.has(s.id);
 
+    // Vertical placement: one lane per concurrent shift so overlaps stack instead of hiding
+    // each other. A single-lane track keeps the block near-full-height (as before).
     const style: CSSProperties = {
       left: `${blockLeftPct(vs, axisStart, axisEnd)}%`,
       width: `${blockWidthPct(vs, ve, axisStart, axisEnd)}%`,
+      top: `calc(${(lane / laneCount) * 100}% + 2px)`,
+      height: `calc(${100 / laneCount}% - 4px)`,
     };
     if (colored) Object.assign(style, { backgroundColor: `${colored}22`, borderColor: colored, color: colored });
 
@@ -364,7 +396,7 @@ export function HourGrid({
         }
         style={style}
         className={cn(
-          'group absolute top-1 bottom-1 flex select-none flex-col justify-center overflow-hidden rounded border px-1.5 text-left',
+          'group absolute flex select-none flex-col justify-center overflow-hidden rounded border px-1.5 text-left',
           !colored && meta.cls,
           s.statut === 'brouillon' && 'border-dashed opacity-70',
           isDragShift && (drag?.kind === 'resize' || drag?.kind === 'move') && 'z-20',
@@ -508,8 +540,7 @@ export function HourGrid({
   }
 
   // Hour gridlines drawn as a repeating background (full hours + fainter half-hours).
-  const trackBg: CSSProperties = {
-    height: ROW_H,
+  const trackBgBase: CSSProperties = {
     backgroundImage:
       'linear-gradient(to right, rgb(var(--c-border-light)) 0, rgb(var(--c-border-light)) 1px, transparent 1px),' +
       'linear-gradient(to right, rgb(var(--c-border-light) / 0.45) 0, rgb(var(--c-border-light) / 0.45) 1px, transparent 1px)',
@@ -517,7 +548,7 @@ export function HourGrid({
     backgroundPosition: 'left top',
   };
 
-  function renderTrack(row: UserWeekDTO, date: string) {
+  function renderTrack(row: UserWeekDTO, date: string, height: number, lanes: { laneOf: Map<number, number>; laneCount: number }) {
     const userId = row.user.id;
     const here = row.shifts.filter((s) => s.date === date);
     const timed = here.filter((s) => s.heureDebut && s.heureFin);
@@ -535,14 +566,16 @@ export function HourGrid({
         onPointerMove={editable ? (selectMode ? onMarqueeMove : onTrackMove) : undefined}
         onPointerUp={editable ? (selectMode ? onMarqueeUp : onTrackUp) : undefined}
         onPointerCancel={editable ? onTrackCancel : undefined}
-        style={trackBg}
+        style={{ ...trackBgBase, height }}
         className={cn(
           'group relative border-b border-r border-border',
           editable && 'cursor-crosshair touch-none',
         )}
       >
         {fullday.map((s, i) => renderFullDay(s, i, fullday.length))}
-        {timed.map((s) => renderTimed(s, drag != null && 'shift' in drag && drag.shift.id === s.id))}
+        {timed.map((s) =>
+          renderTimed(s, drag != null && 'shift' in drag && drag.shift.id === s.id, lanes.laneOf.get(s.id) ?? 0, lanes.laneCount),
+        )}
         {appts.map((a) => renderAppointment(a))}
         {drawGhost(userId, date)}
         {moveGhost(userId, date)}
@@ -632,11 +665,21 @@ export function HourGrid({
         {/* Body: one row per employee → sticky label + a track per day. */}
         {rows.map((row) => {
           const ci = row.user.contratId != null ? contrats?.[row.user.contratId] : undefined;
+          // Lanes per day + the busiest day sets this employee's row height (grid rows share a
+          // height, so the sticky label must match the tallest track of the week).
+          const lanesByDate = new Map<string, { laneOf: Map<number, number>; laneCount: number }>();
+          let maxLanes = 1;
+          for (const date of days) {
+            const info = computeLanes(row.shifts.filter((s) => s.date === date));
+            lanesByDate.set(date, info);
+            if (info.laneCount > maxLanes) maxLanes = info.laneCount;
+          }
+          const rowHeight = Math.max(ROW_H, maxLanes * LANE_H + 6);
           return (
             <Fragment key={row.user.id}>
               <div
                 className="sticky left-0 z-20 flex items-center gap-2 border-b border-r border-border bg-bg-secondary px-3"
-                style={{ height: ROW_H }}
+                style={{ height: rowHeight }}
               >
                 <span
                   className="h-5 w-1.5 shrink-0 rounded-full"
@@ -662,7 +705,7 @@ export function HourGrid({
                   )}
                 </span>
               </div>
-              {days.map((date) => renderTrack(row, date))}
+              {days.map((date) => renderTrack(row, date, rowHeight, lanesByDate.get(date) ?? EMPTY_LANES))}
             </Fragment>
           );
         })}
