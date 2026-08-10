@@ -100,29 +100,38 @@ export const authController = {
   },
 
   /**
-   * PATCH /api/auth/me/shift-notify - self opt-in to shift-change notifications.
-   * Body { minutesBefore: number|null }: null (or ≤0) disables; a positive value is the lead time.
+   * PATCH /api/auth/me/shift-notify - self-configure shift-change notifications. Body:
+   *   { minutesBefore: number|null, atChange?: boolean }
+   * minutesBefore null/≤0 = no lead alert; atChange true = notify at the change itself.
    */
   async setShiftNotify(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const raw = (req.body as { minutesBefore?: number | null }).minutesBefore;
+      const body = req.body as { minutesBefore?: number | null; atChange?: boolean };
       const minutesBefore =
-        raw === null || raw === undefined || Number(raw) <= 0 ? null : Math.min(120, Math.round(Number(raw)));
-      await db('users').where({ id: req.session.userId! }).update({ shift_notify_before_min: minutesBefore, updated_at: new Date() });
+        body.minutesBefore === null || body.minutesBefore === undefined || Number(body.minutesBefore) <= 0
+          ? null
+          : Math.min(120, Math.round(Number(body.minutesBefore)));
+      const atChange = body.atChange === true;
+      await db('users')
+        .where({ id: req.session.userId! })
+        .update({ shift_notify_before_min: minutesBefore, shift_notify_at_change: atChange, updated_at: new Date() });
 
-      // Immediate confirmation on ENABLE so the user sees (and can verify) that push + in-app
-      // work, without waiting for the next real shift change.
+      // Immediate confirmation when at least one alert is enabled, so the user sees (and can
+      // verify) that push + in-app work without waiting for the next real change.
       const tid = req.session.currentTenantId;
-      if (minutesBefore && tid) {
+      if ((atChange || minutesBefore) && tid) {
+        const parts: string[] = [];
+        if (atChange) parts.push('au changement');
+        if (minutesBefore) parts.push(`${minutesBefore} min avant`);
         void notify(tid, {
           recipientIds: [req.session.userId!],
           type: 'planning.shift_change_pref',
           title: 'Notifications de créneau activées',
-          body: `Vous serez prévenu ${minutesBefore} min avant chaque changement de créneau.`,
+          body: `Vous serez prévenu ${parts.join(' et ')} de chaque changement de créneau.`,
           link: '/mon-planning',
         });
       }
-      res.json({ success: true, data: { shiftNotifyBeforeMin: minutesBefore } });
+      res.json({ success: true, data: { shiftNotifyBeforeMin: minutesBefore, shiftNotifyAtChange: atChange } });
     } catch (err) {
       next(err);
     }

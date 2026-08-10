@@ -271,19 +271,26 @@ function PushNotificationsCard() {
   );
 }
 
-/** Opt-in to shift-change notifications: an alert `lead` minutes before each change + one at it. */
+/**
+ * Shift-change notifications: two independent alerts - one AT the change (on by default),
+ * one a chosen number of minutes BEFORE it (15 by default). Both off = disabled.
+ */
 function ShiftNotifyCard() {
   const user = useAuthStore((s) => s.user);
   const checkSession = useAuthStore((s) => s.checkSession);
   const [busy, setBusy] = useState(false);
-  const current = user?.shiftNotifyBeforeMin ?? null;
+  const atChange = user?.shiftNotifyAtChange === true;
+  const beforeMin = user?.shiftNotifyBeforeMin ?? null;
+  const enabled = atChange || beforeMin != null;
 
-  async function save(min: number | null) {
+  async function save(prefs: { atChange: boolean; minutesBefore: number | null }) {
     setBusy(true);
     try {
-      await authApi.setShiftNotify(min);
+      await authApi.setShiftNotify(prefs);
       await checkSession();
-      toast.success(min ? `Alerte ${min} min avant chaque changement de créneau.` : 'Alertes de créneau désactivées.');
+      toast.success(
+        prefs.atChange || prefs.minutesBefore ? 'Réglage enregistré.' : 'Alertes de créneau désactivées.',
+      );
     } catch {
       toast.error('Impossible de modifier ce réglage.');
     } finally {
@@ -298,39 +305,73 @@ function ShiftNotifyCard() {
       </CardHeader>
       <CardBody className="space-y-3">
         <p className="text-sm text-text-secondary">
-          Soyez prévenu avant chaque changement de créneau (ex Back → Front), puis au moment du changement.
-          Utilise les notifications push ci-dessus.
+          Soyez prévenu à chaque changement de créneau (ex Back → Front), et/ou un peu avant.
+          « Au changement » inclut une alerte de fin de journée. Utilise les notifications push ci-dessus.
         </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-sm text-text-secondary">Me prévenir</label>
-          <select
-            value={current ?? 'off'}
-            disabled={busy}
-            onChange={(e) => void save(e.target.value === 'off' ? null : Number(e.target.value))}
-            className="rounded-md border border-border bg-bg-tertiary px-3 py-1.5 text-sm text-text-primary"
-          >
-            <option value="off">Désactivé</option>
-            <option value="5">5 min avant</option>
-            <option value="10">10 min avant</option>
-            <option value="15">15 min avant</option>
-            <option value="30">30 min avant</option>
-          </select>
+
+        {!enabled ? (
           <Button
             size="sm"
-            variant="secondary"
             disabled={busy}
-            onClick={async () => {
-              try {
-                await authApi.testNotify();
-                toast.success('Notif de test envoyée : vérifiez la cloche 🔔');
-              } catch {
-                toast.error("Échec de l'envoi de la notif de test.");
-              }
-            }}
+            onClick={() => void save({ atChange: true, minutesBefore: 15 })}
           >
-            Envoyer une notif de test
+            Activer (au changement + 15 min avant)
           </Button>
-        </div>
+        ) : (
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 text-sm text-text-secondary">
+              <input
+                type="checkbox"
+                checked={atChange}
+                disabled={busy}
+                onChange={(e) => void save({ atChange: e.target.checked, minutesBefore: beforeMin })}
+              />
+              Au changement de créneau
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-sm text-text-secondary">Rappel avant</label>
+              <select
+                value={beforeMin ?? 'off'}
+                disabled={busy}
+                onChange={(e) =>
+                  void save({ atChange, minutesBefore: e.target.value === 'off' ? null : Number(e.target.value) })
+                }
+                className="rounded-md border border-border bg-bg-tertiary px-3 py-1.5 text-sm text-text-primary"
+              >
+                <option value="off">Aucun</option>
+                <option value="5">5 min avant</option>
+                <option value="10">10 min avant</option>
+                <option value="15">15 min avant</option>
+                <option value="30">30 min avant</option>
+              </select>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={async () => {
+                  try {
+                    await authApi.testNotify();
+                    toast.success('Notif de test envoyée : vérifiez la cloche 🔔');
+                  } catch {
+                    toast.error("Échec de l'envoi de la notif de test.");
+                  }
+                }}
+              >
+                Envoyer une notif de test
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => void save({ atChange: false, minutesBefore: null })}
+              >
+                Désactiver
+              </Button>
+            </div>
+          </div>
+        )}
       </CardBody>
     </Card>
   );

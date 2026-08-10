@@ -44,8 +44,12 @@ function nowParis(): { date: string; minutes: number } {
   return { date: `${g('year')}-${g('month')}-${g('day')}`, minutes: Number(hour) * 60 + Number(g('minute')) };
 }
 
-// Sent-marker set (keys "date:shiftId:pre|start") so each target fires once. Purged daily.
+// Sent-marker set (keys "date:shiftId:pre|start" / "date:user:tenant:eod") so each target fires
+// once. Purged daily.
 const sent = new Set<string>();
+// End-of-day fires only within this many minutes after the last shift ends (avoids a late resend
+// after an evening restart, since a passed day would otherwise re-trigger on first sweep).
+const EOD_WINDOW_MIN = 3;
 
 interface ShiftRow {
   id: number;
@@ -63,11 +67,15 @@ async function tick(): Promise<void> {
   for (const k of sent) if (!k.startsWith(`${now.date}:`)) sent.delete(k);
 
   const prefUsers = (await db('users')
-    .whereNotNull('shift_notify_before_min')
-    .andWhere('is_active', true)
-    .select('id', 'shift_notify_before_min')) as { id: number; shift_notify_before_min: number }[];
+    .where('is_active', true)
+    .andWhere((b) => b.whereNotNull('shift_notify_before_min').orWhere('shift_notify_at_change', true))
+    .select('id', 'shift_notify_before_min', 'shift_notify_at_change')) as {
+    id: number;
+    shift_notify_before_min: number | null;
+    shift_notify_at_change: boolean | null;
+  }[];
   if (prefUsers.length === 0) return;
-  const leadById = new Map(prefUsers.map((u) => [u.id, u.shift_notify_before_min]));
+  const prefById = new Map(prefUsers.map((u) => [u.id, u]));
 
   const rows = (await db('shifts as s')
     .leftJoin('hour_types as ht', 'ht.id', 's.hour_type_id')
@@ -107,7 +115,9 @@ async function tick(): Promise<void> {
       // Only real changes: first shift of the day, or a label different from the previous one.
       if (prevLabel !== null && prevLabel === label) continue;
 
-      const lead = leadById.get(s.user_id) ?? 0;
+      const pref = prefById.get(s.user_id);
+      const lead = pref?.shift_notify_before_min ?? 0;
+      const atChange = pref?.shift_notify_at_change === true;
       const startMin = toMin(s.heure_debut);
       const endMin = toMin(s.heure_fin);
       const start = s.heure_debut.slice(0, 5);
@@ -138,7 +148,7 @@ async function tick(): Promise<void> {
       // not just in a 2-min window after the start. This survives a mid-shift server restart or
       // enabling the setting mid-shift: the user still gets "you're now on X" once.
       const startKey = `${now.date}:${s.id}:start`;
-      if (startMin <= now.minutes && now.minutes < endMin && !sent.has(startKey)) {
+      if (atChange && startMin <= now.minutes && now.minutes < endMin && !sent.has(startKey)) {
         sent.add(startKey);
         logger.info({ userId: s.user_id, shiftId: s.id, label, at: start }, 'shiftNotifier: change sent');
         void notify(s.tenant_id, {
@@ -146,6 +156,27 @@ async function tick(): Promise<void> {
           type: 'planning.shift_change',
           title: prevLabel ? `Vous passez sur ${label}` : `Créneau : ${label}`,
           body: `${label} · ${start} – ${end}`,
+          link: '/mon-planning',
+        });
+      }
+    }
+
+    // End-of-day: once the last shift of the day is over, "plus de créneau aujourd'hui". Part of
+    // the at-change family. A short window (not "in progress") avoids a late resend on an evening
+    // restart; the 60s sweep still catches the transition.
+    const owner = list[0];
+    const pref = prefById.get(owner.user_id);
+    if (pref?.shift_notify_at_change) {
+      const lastEnd = Math.max(...list.map((r) => toMin(r.heure_fin)));
+      const eodKey = `${now.date}:${owner.user_id}:${owner.tenant_id}:eod`;
+      if (now.minutes >= lastEnd && now.minutes < lastEnd + EOD_WINDOW_MIN && !sent.has(eodKey)) {
+        sent.add(eodKey);
+        logger.info({ userId: owner.user_id }, 'shiftNotifier: end-of-day sent');
+        void notify(owner.tenant_id, {
+          recipientIds: [owner.user_id],
+          type: 'planning.day_end',
+          title: 'Fin de journée',
+          body: "Plus de créneau prévu aujourd'hui. Bonne fin de journée !",
           link: '/mon-planning',
         });
       }

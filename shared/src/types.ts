@@ -61,8 +61,10 @@ export interface User {
   preferredLanguage: string;
   /** Per-employee opt-in to the self-service récup view (/ma-recup). */
   recupSelfService?: boolean;
-  /** Minutes before each shift change to be notified (push + in-app). Null/undefined = disabled. */
+  /** Minutes before each shift change to be notified (push + in-app). Null/undefined = no lead alert. */
   shiftNotifyBeforeMin?: number | null;
+  /** Notify AT the moment of each shift change. Default false (opt-in). */
+  shiftNotifyAtChange?: boolean;
   // SSO foreign fields - null for local users
   foreignSource?: string | null;
   foreignId?: number | null;
