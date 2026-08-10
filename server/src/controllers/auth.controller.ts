@@ -129,6 +129,28 @@ export const authController = {
   },
 
   /**
+   * POST /api/auth/me/test-notify - send the caller a test notification through the exact same
+   * dispatcher (in-app + push) the shift-change notifier uses. Lets a user verify their
+   * notification setup end to end, isolating the pipeline from the scheduler.
+   */
+  async testNotify(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const tid = req.session.currentTenantId;
+      if (!tid) throw new AppError(400, 'Aucun espace sélectionné');
+      await notify(tid, {
+        recipientIds: [req.session.userId!],
+        type: 'test',
+        title: 'Notification de test',
+        body: 'Si vous voyez ceci, vos notifications Obliplan fonctionnent.',
+        link: '/',
+      });
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
    * GET /api/auth/connected-apps - Obli* apps reachable via Obligate, for the
    * header app switcher. Scoped to the user's Obligate permissions.
    */

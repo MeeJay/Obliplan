@@ -146,6 +146,8 @@ export const authApi = {
   /** Opt-in / configure shift-change notifications (null or 0 = disabled). */
   setShiftNotify: (minutesBefore: number | null) =>
     patchReq<{ shiftNotifyBeforeMin: number | null }>('/auth/me/shift-notify', { minutesBefore }),
+  /** Send the current user a test notification (in-app + push) to verify the pipeline. */
+  testNotify: () => post<{ success: boolean }>('/auth/me/test-notify'),
 };
 
 export interface TenantMember {

@@ -46,8 +46,6 @@ function nowParis(): { date: string; minutes: number } {
 
 // Sent-marker set (keys "date:shiftId:pre|start") so each target fires once. Purged daily.
 const sent = new Set<string>();
-// Fire within this many minutes AFTER a target so a ~60 s sweep never misses it; the set dedupes.
-const WINDOW_MIN = 2;
 
 interface ShiftRow {
   id: number;
@@ -111,27 +109,36 @@ async function tick(): Promise<void> {
 
       const lead = leadById.get(s.user_id) ?? 0;
       const startMin = toMin(s.heure_debut);
+      const endMin = toMin(s.heure_fin);
       const start = s.heure_debut.slice(0, 5);
       const end = s.heure_fin.slice(0, 5);
 
-      // Heads-up, `lead` minutes before the change.
+      // Heads-up, `lead` minutes before the change (only fires in the run-up, not retroactively).
       const preTarget = startMin - lead;
       const preKey = `${now.date}:${s.id}:pre`;
-      if (lead > 0 && preTarget >= 0 && now.minutes >= preTarget && now.minutes < preTarget + WINDOW_MIN && !sent.has(preKey)) {
+      if (
+        lead > 0 &&
+        preTarget >= 0 &&
+        now.minutes >= preTarget &&
+        now.minutes < startMin && // not past the change yet
+        !sent.has(preKey)
+      ) {
         sent.add(preKey);
         logger.info({ userId: s.user_id, shiftId: s.id, label, at: start }, 'shiftNotifier: heads-up sent');
         void notify(s.tenant_id, {
           recipientIds: [s.user_id],
           type: 'planning.shift_change_pre',
           title: 'Changement de créneau bientôt',
-          body: `Dans ${lead} min : ${label} à ${start}${prevLabel ? ` (après ${prevLabel})` : ''}`,
+          body: `Dans ${Math.max(1, startMin - now.minutes)} min : ${label} à ${start}${prevLabel ? ` (après ${prevLabel})` : ''}`,
           link: '/mon-planning',
         });
       }
 
-      // At the change itself.
+      // The change notification fires as soon as the shift is IN PROGRESS (start ≤ now < end),
+      // not just in a 2-min window after the start. This survives a mid-shift server restart or
+      // enabling the setting mid-shift: the user still gets "you're now on X" once.
       const startKey = `${now.date}:${s.id}:start`;
-      if (now.minutes >= startMin && now.minutes < startMin + WINDOW_MIN && !sent.has(startKey)) {
+      if (startMin <= now.minutes && now.minutes < endMin && !sent.has(startKey)) {
         sent.add(startKey);
         logger.info({ userId: s.user_id, shiftId: s.id, label, at: start }, 'shiftNotifier: change sent');
         void notify(s.tenant_id, {

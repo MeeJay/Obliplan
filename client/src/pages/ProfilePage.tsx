@@ -301,7 +301,7 @@ function ShiftNotifyCard() {
           Soyez prévenu avant chaque changement de créneau (ex Back → Front), puis au moment du changement.
           Utilise les notifications push ci-dessus.
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <label className="text-sm text-text-secondary">Me prévenir</label>
           <select
             value={current ?? 'off'}
@@ -315,6 +315,21 @@ function ShiftNotifyCard() {
             <option value="15">15 min avant</option>
             <option value="30">30 min avant</option>
           </select>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={busy}
+            onClick={async () => {
+              try {
+                await authApi.testNotify();
+                toast.success('Notif de test envoyée : vérifiez la cloche 🔔');
+              } catch {
+                toast.error("Échec de l'envoi de la notif de test.");
+              }
+            }}
+          >
+            Envoyer une notif de test
+          </Button>
         </div>
       </CardBody>
     </Card>
