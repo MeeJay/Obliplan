@@ -64,6 +64,10 @@ export const createContratSchema = z.object({
   heuresSupAutorisees: z.boolean(),
   seuilHeuresSupMin: z.number().int().min(0).nullable().optional(),
   alternance: z.boolean(),
+  // ISO country code of the contract (drives which public holidays apply). Default 'FR'.
+  pays: z.string().regex(/^[A-Z]{2}$/, 'Code pays ISO à 2 lettres attendu').optional(),
+  // Worked-public-holiday multiplier for heures sup (1 = 1:1, 2 = +100%).
+  ferieWorkedCoeff: z.number().min(0).max(10).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Couleur hex #rrggbb attendue').nullable().optional(),
   // Phase 3c - per-weekday expected minutes [Mon..Sun]; null = uniform base/5.
   workPattern: z.array(z.number().int().min(0).max(24 * 60)).length(7).nullable().optional(),
@@ -277,7 +281,11 @@ export const decideLeaveRequestSchema = z.object({
 });
 
 // ── Public holidays ───────────────────────────────────────────────────────────
-export const createHolidaySchema = z.object({ date: isoDate, label: z.string().min(1).max(160) });
+export const createHolidaySchema = z.object({
+  date: isoDate,
+  label: z.string().min(1).max(160),
+  pays: z.string().regex(/^[A-Z]{2}$/, 'Code pays ISO à 2 lettres attendu').nullable().optional(),
+});
 
 export type CreateContratInput = z.infer<typeof createContratSchema>;
 export type UpdateContratInput = z.infer<typeof updateContratSchema>;

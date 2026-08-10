@@ -86,6 +86,12 @@ export interface Contrat {
   seuilHeuresSupMin: number | null;
   /** If true, the contract is an alternance and uses jours d'école. */
   alternance: boolean;
+  /** ISO country code (FR, MG…). The contract only observes the public holidays of its own
+   *  country, so a team abroad works FR holidays as normal days. Default 'FR'. */
+  pays: string;
+  /** Multiplier on hours WORKED on an observed public holiday when crediting heures sup
+   *  (2 = +100%). Default 1 = credited 1:1. */
+  ferieWorkedCoeff: number;
   /** Optional color tag (hex) for planning visualization. Null = no color. */
   color: string | null;
   /**
@@ -184,6 +190,9 @@ export interface TeamOverviewMember {
   appointments: { id: number; date: string; start: string; end: string; status: 'pending' | 'confirmed' }[];
   /** Axis-C user_teams ids this member belongs to (tenant-scoped). [] = no team. */
   teamIds: number[];
+  /** ISO dates that are public holidays for THIS member's contract country this week (sorted).
+   *  Lets the overview mark a férié per employee - a MG member's fériés differ from a FR one's. */
+  holidays: string[];
 }
 
 export interface TeamOverviewDTO {

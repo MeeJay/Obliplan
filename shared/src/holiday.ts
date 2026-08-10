@@ -13,4 +13,6 @@ export interface PublicHoliday {
   label: string;
   /** Optional regional scope code (e.g. Alsace-Moselle); null for national. */
   regionCode: string | null;
+  /** ISO country code (FR, MG…) the holiday belongs to; null = universal (every country). */
+  pays: string | null;
 }

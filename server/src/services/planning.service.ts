@@ -13,13 +13,13 @@ import { shiftService, rowToShift } from './shift.service';
 import { jourEcoleService } from './jourEcole.service';
 import { recupService } from './recup.service';
 import { userService } from './user.service';
-import { leaveRequestService, workingDaysFromPattern } from './leaveRequest.service';
+import { leaveRequestService } from './leaveRequest.service';
 import { leaveTypeService } from './leaveType.service';
-import { holidayService } from './holiday.service';
-import { computeWeeklyCounter, feriesInWeek } from './calc.service';
+import { holidayService, holidayAppliesTo } from './holiday.service';
+import { computeWeeklyCounter } from './calc.service';
 import { complianceService } from './compliance.service';
 import { notify, emailFor } from './notify';
-import { mondayOf, addDays, isWeekday, dayOfWeek } from '../utils/date';
+import { mondayOf, addDays } from '../utils/date';
 
 export interface UserWeek {
   user: User;
@@ -61,39 +61,26 @@ export interface UserWeek {
 export const planningService = {
   /** Full week view for a single user: shifts + computed counter + récup balance. */
   async getUserWeek(tenantId: number, user: User, monday: string): Promise<UserWeek> {
-    const sunday = addDays(monday, 6);
     const weekEndExclusive = addDays(monday, 7);
-    const [shifts, joursEcole, contrat, recupSoldeMin, leaves, leaveTypes, holidays] = await Promise.all([
+    const [shifts, joursEcole, contrat, recupSoldeMin, leaves, leaveTypes, holidayRows] = await Promise.all([
       shiftService.getForUserWeek(tenantId, user.id, monday),
       jourEcoleService.getForUser(tenantId, user.id),
       user.contratId ? contratService.getById(user.contratId, tenantId) : Promise.resolve(null),
       recupService.soldeForUser(tenantId, user.id),
       leaveRequestService.getApprovedOverlapping(tenantId, user.id, monday, weekEndExclusive),
       leaveTypeService.getAll(tenantId),
-      holidayService.getSet(tenantId, monday, weekEndExclusive),
+      holidayService.getRows(tenantId, monday, weekEndExclusive),
     ]);
 
-    // Public holidays on a WORKED weekday reduce the expected weekly hours (pattern-aware).
-    const feriesCount = feriesInWeek(holidays, monday, contrat);
+    // Only the public holidays of THIS employee's contract country apply (a MG contract does
+    // not observe FR bank holidays, and vice-versa). Null-country holidays are universal.
+    const pays = contrat?.pays ?? 'FR';
+    const holidays = new Set(holidayRows.filter((r) => holidayAppliesTo(r.pays, pays)).map((r) => r.date));
 
-    // Approved leave on `reducesAttendu` types reduces the expected weekly hours, counting
-    // only days the employee actually works (a structural off-day / weekend / holiday is skipped).
-    const reduces = new Set(leaveTypes.filter((t) => t.reducesAttendu).map((t) => t.id));
-    const workingDays = workingDaysFromPattern(contrat?.workPattern);
-    const isWorkedDay = (iso: string) => isWeekday(iso) && !holidays.has(iso) && workingDays.has(dayOfWeek(iso));
-    let leaveDays = 0;
-    for (const lv of leaves) {
-      if (!reduces.has(lv.leaveTypeId)) continue;
-      if (lv.halfDay && lv.startDate === lv.endDate) {
-        if (lv.startDate >= monday && lv.startDate <= sunday && isWorkedDay(lv.startDate)) leaveDays += 0.5;
-      } else {
-        const from = lv.startDate < monday ? monday : lv.startDate;
-        const to = lv.endDate > sunday ? sunday : lv.endDate;
-        for (let d = from; d <= to; d = addDays(d, 1)) {
-          if (isWorkedDay(d)) leaveDays += 1;
-        }
-      }
-    }
+    // Leave types flagged "réduit l'attendu". The counter neutralises each working day from ANY
+    // source (public holiday / approved reducing leave / école / a drawn conge-absence-recup
+    // block on the day), deduplicated per day so a day is never cancelled twice.
+    const reduceLeaveTypeIds = new Set(leaveTypes.filter((t) => t.reducesAttendu).map((t) => t.id));
 
     const counter = computeWeeklyCounter({
       userId: user.id,
@@ -101,8 +88,9 @@ export const planningService = {
       contrat,
       shifts,
       joursEcole,
-      leaveDays,
-      feriesCount,
+      holidays,
+      leaves,
+      reduceLeaveTypeIds,
     });
     const flags = complianceService.computeFlags({ monday, contrat, shifts });
 
@@ -523,22 +511,33 @@ export const planningService = {
       apptsByUser.set(a.user_id, list);
     }
 
-    // Week-level public holidays (tenant-wide, not per-member): a purely visual day-marker
-    // so the overview can flag jours fériés without blocking any shift.
-    const holidays = await holidayService.getSet(tenantId, monday, end);
+    // Public holidays this week, resolved PER MEMBER by their contract country: a MG member's
+    // fériés differ from a FR member's. Null-country rows are universal. The DTO-level holidays
+    // stays FR-based as a header hint; the per-cell marking uses each member's own list.
+    const [holidayRows, contrats, teamMap] = await Promise.all([
+      holidayService.getRows(tenantId, monday, end),
+      contratService.getAll(tenantId),
+      this.teamIdsByUser(tenantId, ids),
+    ]);
+    const paysByContrat = new Map(contrats.map((c) => [c.id, c.pays]));
+    const holidaysForPays = (pays: string) =>
+      [...new Set(holidayRows.filter((r) => holidayAppliesTo(r.pays, pays)).map((r) => r.date))].sort();
 
-    const teamMap = await this.teamIdsByUser(tenantId, ids);
     const overviewMembers: TeamOverviewMember[] = members
-      .map((u) => ({
-        userId: u.id,
-        displayName: u.displayName,
-        username: u.username,
-        shifts: byUser.get(u.id) ?? [],
-        appointments: apptsByUser.get(u.id) ?? [],
-        teamIds: teamMap.get(u.id) ?? [],
-      }))
+      .map((u) => {
+        const pays = (u.contratId != null ? paysByContrat.get(u.contratId) : undefined) ?? 'FR';
+        return {
+          userId: u.id,
+          displayName: u.displayName,
+          username: u.username,
+          shifts: byUser.get(u.id) ?? [],
+          appointments: apptsByUser.get(u.id) ?? [],
+          teamIds: teamMap.get(u.id) ?? [],
+          holidays: holidaysForPays(pays),
+        };
+      })
       .sort((a, b) => (a.displayName ?? a.username).localeCompare(b.displayName ?? b.username));
 
-    return { monday, members: overviewMembers, holidays: [...holidays].sort() };
+    return { monday, members: overviewMembers, holidays: holidaysForPays('FR') };
   },
 };

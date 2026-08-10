@@ -83,7 +83,10 @@ export function RotaGrid({
               Salarié
             </th>
             {days.map((iso) => {
-              const isHoliday = holidays?.includes(iso) ?? false;
+              // Header flags a férié for at least one displayed employee (countries may differ);
+              // the precise per-employee mark is on each cell.
+              const isHoliday =
+                rows.some((r) => (r.holidays ?? []).includes(iso)) || (holidays?.includes(iso) ?? false);
               return (
                 <th
                   key={iso}
@@ -139,6 +142,8 @@ export function RotaGrid({
                   const key = cellKey(row.user.id, iso);
                   const cellShifts = row.shifts.filter((s) => s.date === iso);
                   const cellAppts = (row.appointments ?? []).filter((a) => a.date === iso);
+                  // Public holiday for THIS employee's country (per-cell, countries may differ).
+                  const cellHoliday = (row.holidays ?? []).includes(iso);
                   return (
                     <td
                       key={iso}
@@ -159,11 +164,17 @@ export function RotaGrid({
                       onClick={editable ? () => onCellAdd(row.user.id, iso) : undefined}
                       className={cn(
                         'group h-[92px] border-b border-r border-border align-top transition-colors',
+                        cellHoliday && 'bg-status-pending/10',
                         editable && 'cursor-pointer hover:bg-bg-hover/40',
                         overKey === key && 'bg-accent/10 outline outline-2 -outline-offset-2 outline-accent',
                       )}
                     >
                       <div className="flex h-full flex-col gap-1 p-1">
+                        {cellHoliday && (
+                          <span className="rounded bg-status-pending/20 px-1 py-0.5 text-center text-[9px] font-semibold uppercase tracking-wide text-status-pending">
+                            Férié
+                          </span>
+                        )}
                         {cellShifts.map((s) => (
                           <ShiftChip
                             key={s.id}

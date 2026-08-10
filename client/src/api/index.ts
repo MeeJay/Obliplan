@@ -215,7 +215,7 @@ export const hourTypeApi = {
 
 export const holidayApi = {
   list: (year?: number) => get<PublicHoliday[]>('/holidays', year != null ? { year } : undefined),
-  addCustom: (data: { date: string; label: string }) => post<PublicHoliday>('/holidays', data),
+  addCustom: (data: { date: string; label: string; pays?: string | null }) => post<PublicHoliday>('/holidays', data),
   remove: (id: number) => del(`/holidays/${id}`),
 };
 

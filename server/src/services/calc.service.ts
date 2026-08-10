@@ -118,10 +118,62 @@ export function attenduMinutes(contrat: Contrat | null, joursEcoleCount: number,
 }
 
 /**
+ * Shift types that NEUTRALISE a day drawn straight on the planning: a block of one of
+ * these makes the day count as "not expected to work" (attendu → 0 for that day), exactly
+ * like an approved leave or a public holiday. `astreinte` is deliberately NOT here: an
+ * on-call call-out during a leave must still add heures sup, not cancel the day.
+ */
+export const NEUTRALISING_SHIFT_TYPES: ReadonlyArray<Shift['type']> = ['conge', 'absence', 'recup'];
+
+/** A leave span reducing the expected hours, as consumed by the per-day counter below. */
+export interface CounterLeaveSpan {
+  startDate: string;
+  endDate: string;
+  halfDay?: boolean;
+  leaveTypeId: number;
+}
+
+/**
+ * Per-day neutralisation factor ∈ [0,1]: how much of `iso`'s expected hours are cancelled.
+ * The factor is the MAX across every source (never the sum), so overlapping sources - a leave
+ * that is ALSO a drawn block, say - can never reduce a day twice. Sources:
+ *   - public holiday                                        → 1
+ *   - école day (alternance contracts only)                 → 1
+ *   - approved leave of a `reducesAttendu` type             → 1 (0.5 for a single half-day)
+ *   - a drawn conge/absence/recup block on that day         → 1  (any status: it states intent)
+ * Returns { factor, leaveFactor } so the counter can report congeJours without counting fériés.
+ */
+function dayNeutralisation(
+  iso: string,
+  contrat: Contrat | null,
+  holidays: Set<string>,
+  leaves: CounterLeaveSpan[],
+  reduceLeaveTypeIds: Set<number>,
+  joursEcole: JourEcole[],
+  shifts: Shift[],
+): { factor: number; leaveFactor: number } {
+  const holidayF = holidays.has(iso) ? 1 : 0;
+  const ecoleF = contrat?.alternance && joursEcole.some((j) => isEcoleDay(j, iso)) ? 1 : 0;
+  let leaveF = 0;
+  for (const lv of leaves) {
+    if (!reduceLeaveTypeIds.has(lv.leaveTypeId)) continue;
+    if (iso < lv.startDate || iso > lv.endDate) continue;
+    leaveF = Math.max(leaveF, lv.halfDay && lv.startDate === lv.endDate ? 0.5 : 1);
+  }
+  if (shifts.some((s) => s.date === iso && NEUTRALISING_SHIFT_TYPES.includes(s.type))) leaveF = 1;
+  return { factor: Math.min(1, Math.max(holidayF, ecoleF, leaveF)), leaveFactor: leaveF };
+}
+
+/**
  * Compute the weekly counter for a user.
- * - réalisé = Σ worked minutes of validated `travail` shifts.
- * - attendu = base − école days.
- * - overflow split per contract: heures sup (if authorized) vs récup-eligible.
+ * - réalisé = Σ worked minutes of validated `travail` shifts (a congé/absence block is 0 min,
+ *   so a 24h leave block can never inflate the balance).
+ * - attendu = Σ per worked day of the contract's expected minutes, each day NEUTRALISED (→0)
+ *   when it is a public holiday, an approved reducing leave, an école day, or carries a drawn
+ *   conge/absence/recup block. Neutralisation is deduplicated per day (max of sources), so the
+ *   same day is never cancelled twice → a leave leaves the balance at 0, never negative nor positive.
+ * - astreinte time is added to heures sup on TOP of all this, so an on-call call-out during a
+ *   leave is still paid even though the day's attendu is 0.
  */
 export function computeWeeklyCounter(params: {
   userId: number;
@@ -129,12 +181,17 @@ export function computeWeeklyCounter(params: {
   contrat: Contrat | null;
   shifts: Shift[];
   joursEcole: JourEcole[];
-  /** Approved leave weekdays this week (reducing the expected hours). */
-  leaveDays?: number;
-  /** Public-holiday weekdays this week (reducing the expected hours). */
-  feriesCount?: number;
+  /** Public holidays (ISO dates) in the tenant this week - neutralise their day. */
+  holidays?: Set<string>;
+  /** Approved leaves overlapping this week (only `reducesAttendu` types reduce). */
+  leaves?: CounterLeaveSpan[];
+  /** Ids of leave types flagged `reducesAttendu`. */
+  reduceLeaveTypeIds?: Set<number>;
 }): WeeklyCounter {
-  const { userId, monday, contrat, shifts, joursEcole, leaveDays = 0, feriesCount = 0 } = params;
+  const { userId, monday, contrat, shifts, joursEcole } = params;
+  const holidays = params.holidays ?? new Set<string>();
+  const leaves = params.leaves ?? [];
+  const reduceLeaveTypeIds = params.reduceLeaveTypeIds ?? new Set<number>();
 
   const realiseMin = shifts.reduce((sum, s) => sum + shiftWorkedMinutes(s), 0);
   // Astreinte (on-call): time always counts as heures sup, plus a call-out count.
@@ -142,30 +199,57 @@ export function computeWeeklyCounter(params: {
   const astreinteMin = astreinteShifts.reduce((sum, s) => sum + shiftAstreinteMinutes(s), 0);
   const astreinteDeclenchements = astreinteShifts.length;
 
-  const ecoleCount = joursEcoleInWeek(joursEcole, monday, contrat);
-  // Expected = (pattern weekly sum, or legacy base) minus école days, public holidays and
-  // approved leave days. Each reduced day = base/5 for legacy contrats, or the per-working-day
-  // average (weeklySum / nb worked days) for work-pattern contrats.
-  const baseAttendu = attenduMinutes(contrat, ecoleCount, feriesCount);
-  const perDay = contrat ? workingDayAverage(contrat) : 0;
-  const attenduMin = Math.max(0, Math.round(baseAttendu - leaveDays * perDay));
+  // Attendu, computed day by day so every neutralisation source is deduplicated on its day.
+  let attenduMin = 0;
+  let leaveDays = 0; // neutralised-by-leave working days (fériés excluded), for display
+  let ecoleCount = 0;
+  for (const iso of weekDates(monday)) {
+    const base = expectedMinutesForDay(contrat, iso);
+    if (base <= 0) continue; // structural off day / weekend → nothing expected, nothing to cancel
+    const { factor, leaveFactor } = dayNeutralisation(
+      iso,
+      contrat,
+      holidays,
+      leaves,
+      reduceLeaveTypeIds,
+      joursEcole,
+      shifts,
+    );
+    attenduMin += Math.round(base * (1 - factor));
+    if (!holidays.has(iso)) leaveDays += leaveFactor;
+    if (contrat?.alternance && joursEcole.some((j) => isEcoleDay(j, iso))) ecoleCount += 1;
+  }
   const ecartMin = realiseMin - attenduMin;
-  const overflow = Math.max(0, ecartMin);
+
+  // Hours worked ON an observed public holiday (holidays is already filtered to the contract's
+  // country upstream). These are ALWAYS heures sup - a worked bank holiday is overtime by rule -
+  // scaled by the contract's coefficient (2 = +100%). They are handled separately from the
+  // ordinary overflow so they count even when the contract otherwise has no heures sup.
+  const ferieWorkedMin = shifts.reduce(
+    (sum, s) => sum + (holidays.has(s.date) ? shiftWorkedMinutes(s) : 0),
+    0,
+  );
+  const ferieCoeff = contrat?.ferieWorkedCoeff && contrat.ferieWorkedCoeff > 0 ? contrat.ferieWorkedCoeff : 1;
+  const ferieSupMin = Math.round(ferieCoeff * ferieWorkedMin);
 
   let heuresSupMin = 0;
   let recupEligibleMin = 0;
-  if (overflow > 0 && contrat) {
-    if (contrat.heuresSupAutorisees) {
-      // Above the optional threshold (else above attendu) counts as heures sup.
-      const floor = contrat.seuilHeuresSupMin ?? attenduMin;
-      heuresSupMin = Math.max(0, realiseMin - Math.max(attenduMin, floor));
-    } else {
-      // No heures sup → overflow is eligible for manual récup attribution.
-      recupEligibleMin = overflow;
+  if (contrat) {
+    // Ordinary overflow excludes holiday-worked time (credited via ferieSupMin below).
+    const nonFerieRealise = realiseMin - ferieWorkedMin;
+    const nonFerieOverflow = Math.max(0, nonFerieRealise - attenduMin);
+    if (nonFerieOverflow > 0) {
+      if (contrat.heuresSupAutorisees) {
+        const floor = contrat.seuilHeuresSupMin ?? attenduMin;
+        heuresSupMin = Math.max(0, nonFerieRealise - Math.max(attenduMin, floor));
+      } else {
+        // No heures sup → this part is eligible for manual récup attribution.
+        recupEligibleMin = nonFerieOverflow;
+      }
     }
   }
-  // On-call time is heures sup regardless of contract.
-  heuresSupMin += astreinteMin;
+  // Worked-holiday hours: always heures sup (coefficient-scaled). On-call time: always heures sup.
+  heuresSupMin += ferieSupMin + astreinteMin;
 
   return {
     userId,

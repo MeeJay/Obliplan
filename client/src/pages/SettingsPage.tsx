@@ -80,7 +80,7 @@ export function SettingsPage() {
   const [holidays, setHolidays] = useState<PublicHoliday[]>([]);
   const [holidaysLoading, setHolidaysLoading] = useState(true);
   const [holidayYear, setHolidayYear] = useState(() => new Date().getFullYear());
-  const [newHoliday, setNewHoliday] = useState({ date: '', label: '' });
+  const [newHoliday, setNewHoliday] = useState({ date: '', label: '', pays: 'FR' });
 
   useEffect(() => {
     if (currentUser?.email) setTestEmail((prev) => prev || currentUser.email || '');
@@ -122,8 +122,8 @@ export function SettingsPage() {
       return;
     }
     try {
-      await holidayApi.addCustom({ date, label });
-      setNewHoliday({ date: '', label: '' });
+      await holidayApi.addCustom({ date, label, pays: newHoliday.pays || null });
+      setNewHoliday({ date: '', label: '', pays: newHoliday.pays });
       setHolidays(await holidayApi.list(holidayYear));
       toast.success('Jour férié ajouté');
     } catch (err) {
@@ -455,6 +455,9 @@ export function SettingsPage() {
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="w-44 shrink-0 font-mono text-xs capitalize text-text-muted">{formatHolidayDate(h.date)}</span>
                     <span className="truncate text-sm text-text-primary">{h.label}</span>
+                    <span className="shrink-0 rounded bg-bg-hover px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                      {h.pays ?? 'Tous pays'}
+                    </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {h.tenantId === null ? (
@@ -496,6 +499,16 @@ export function SettingsPage() {
                     placeholder="Pont de l'Ascension…"
                     value={newHoliday.label}
                     onChange={(e) => setNewHoliday({ ...newHoliday, label: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium text-text-secondary">Pays</label>
+                  <input
+                    value={newHoliday.pays}
+                    onChange={(e) => setNewHoliday({ ...newHoliday, pays: e.target.value.toUpperCase().slice(0, 2) })}
+                    placeholder="FR"
+                    title="Code pays ISO (FR, MG…) ou vide = tous pays"
+                    className="w-20 rounded-md border border-border bg-bg-tertiary px-3 py-2 text-sm text-text-primary"
                   />
                 </div>
                 <Button onClick={addHoliday}>

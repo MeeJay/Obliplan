@@ -16,6 +16,10 @@ interface Draft {
   heuresSupAutorisees: boolean;
   seuilHeures: string; // hours, '' = none
   alternance: boolean;
+  /** ISO country code (drives which public holidays apply). */
+  pays: string;
+  /** Worked-public-holiday multiplier for heures sup (e.g. '1', '2'). */
+  ferieCoeff: string;
   color: string;
   /** Custom per-day work pattern on (temps partiel / jours fixes) vs uniform base/5. */
   patternEnabled: boolean;
@@ -25,6 +29,19 @@ interface Draft {
   fte: string;
 }
 
+/** Countries offered in the contract form (extend as needed). */
+const PAYS_OPTIONS: { code: string; label: string }[] = [
+  { code: 'FR', label: 'France' },
+  { code: 'MG', label: 'Madagascar' },
+  { code: 'BE', label: 'Belgique' },
+  { code: 'CH', label: 'Suisse' },
+  { code: 'LU', label: 'Luxembourg' },
+  { code: 'MA', label: 'Maroc' },
+  { code: 'TN', label: 'Tunisie' },
+  { code: 'SN', label: 'Sénégal' },
+  { code: 'CI', label: "Côte d'Ivoire" },
+];
+
 const DEFAULT_PATTERN = ['7', '7', '7', '7', '7', '0', '0']; // 35h / 5j
 
 const EMPTY: Draft = {
@@ -33,6 +50,8 @@ const EMPTY: Draft = {
   heuresSupAutorisees: false,
   seuilHeures: '',
   alternance: false,
+  pays: 'FR',
+  ferieCoeff: '1',
   color: '#7c6cff',
   patternEnabled: false,
   pattern: [...DEFAULT_PATTERN],
@@ -82,6 +101,8 @@ export function ContratsPage() {
       heuresSupAutorisees: c.heuresSupAutorisees,
       seuilHeures: c.seuilHeuresSupMin != null ? (c.seuilHeuresSupMin / 60).toString() : '',
       alternance: c.alternance,
+      pays: c.pays ?? 'FR',
+      ferieCoeff: (c.ferieWorkedCoeff ?? 1).toString(),
       color: c.color ?? '#7c6cff',
       patternEnabled: hasPattern,
       pattern: hasPattern ? c.workPattern!.map((m) => (m / 60).toString()) : [...DEFAULT_PATTERN],
@@ -102,6 +123,8 @@ export function ContratsPage() {
       heuresSupAutorisees: draft.heuresSupAutorisees,
       seuilHeuresSupMin: draft.seuilHeures ? Math.round(parseFloat(draft.seuilHeures) * 60) : null,
       alternance: draft.alternance,
+      pays: /^[A-Z]{2}$/.test(draft.pays) ? draft.pays : 'FR',
+      ferieWorkedCoeff: Number.isFinite(parseFloat(draft.ferieCoeff)) ? Math.max(0, parseFloat(draft.ferieCoeff)) : 1,
       color: draft.color,
       workPattern,
       ftePercent: draft.patternEnabled && Number.isFinite(fteNum) ? Math.min(100, Math.max(0, fteNum)) : null,
@@ -147,6 +170,7 @@ export function ContratsPage() {
                 <th className="px-4 py-2">Heures sup</th>
                 <th className="px-4 py-2">Seuil</th>
                 <th className="px-4 py-2">Alternance</th>
+                <th className="px-4 py-2">Pays</th>
                 {canManage && <th className="px-4 py-2"></th>}
               </tr>
             </thead>
@@ -190,6 +214,12 @@ export function ContratsPage() {
                   <td className="px-4 py-2">{c.heuresSupAutorisees ? 'Oui' : 'Non (→ récup)'}</td>
                   <td className="px-4 py-2 font-mono">{c.seuilHeuresSupMin != null ? minToHm(c.seuilHeuresSupMin) : '-'}</td>
                   <td className="px-4 py-2">{c.alternance ? 'Oui' : 'Non'}</td>
+                  <td className="px-4 py-2">
+                    <span className="font-mono">{c.pays ?? 'FR'}</span>
+                    {(c.ferieWorkedCoeff ?? 1) !== 1 && (
+                      <span className="ml-1 text-xs text-text-muted">×{c.ferieWorkedCoeff}</span>
+                    )}
+                  </td>
                   {canManage && (
                     <td className="px-4 py-2 text-right">
                       <button className="mr-3 text-accent hover:underline" onClick={() => edit(c)}>
@@ -267,6 +297,36 @@ export function ContratsPage() {
                 />
                 Alternance (jours d'école réduisent l'attendu)
               </label>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium text-text-secondary">Pays (jours fériés)</label>
+                  <select
+                    value={draft.pays}
+                    onChange={(e) => setDraft({ ...draft, pays: e.target.value })}
+                    className="w-full rounded-md border border-border bg-bg-tertiary px-3 py-2 text-sm text-text-primary"
+                  >
+                    {PAYS_OPTIONS.map((p) => (
+                      <option key={p.code} value={p.code}>
+                        {p.label} ({p.code})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-text-muted">Seuls les jours fériés de ce pays s'appliquent.</p>
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium text-text-secondary">Coeff. férié travaillé</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="1"
+                    value={draft.ferieCoeff}
+                    onChange={(e) => setDraft({ ...draft, ferieCoeff: e.target.value })}
+                    className="w-full rounded-md border border-border bg-bg-tertiary px-3 py-2 text-sm text-text-primary"
+                  />
+                  <p className="text-xs text-text-muted">Heures d'un férié travaillé × ce coeff en heures sup (1 = 1:1, 2 = +100%).</p>
+                </div>
+              </div>
 
               <div className="space-y-2 rounded-md border border-border bg-bg-tertiary/40 p-3">
                 <label className="flex items-center gap-2 text-sm text-text-secondary">

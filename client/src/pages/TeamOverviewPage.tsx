@@ -130,7 +130,10 @@ export function TeamOverviewPage() {
                   Salarié
                 </th>
                 {days.map((iso) => {
-                  const isHoliday = holidays.includes(iso);
+                  // Header flags a férié for at least one displayed member (countries may differ);
+                  // the precise per-member mark is on each cell.
+                  const isHoliday =
+                    visibleMembers.some((m) => (m.holidays ?? []).includes(iso)) || holidays.includes(iso);
                   return (
                     <th
                       key={iso}
@@ -162,9 +165,21 @@ export function TeamOverviewPage() {
                   {days.map((iso) => {
                     const cellShifts = m.shifts.filter((s) => s.date === iso);
                     const cellAppts = (m.appointments ?? []).filter((a) => a.date === iso);
+                    const cellHoliday = (m.holidays ?? []).includes(iso);
                     return (
-                      <td key={iso} className="h-[92px] border-b border-r border-border align-top">
+                      <td
+                        key={iso}
+                        className={cn(
+                          'h-[92px] border-b border-r border-border align-top',
+                          cellHoliday && 'bg-status-pending/10',
+                        )}
+                      >
                         <div className="flex h-full flex-col gap-1 p-1">
+                          {cellHoliday && (
+                            <span className="rounded bg-status-pending/20 px-1 py-0.5 text-center text-[9px] font-semibold uppercase tracking-wide text-status-pending">
+                              Férié
+                            </span>
+                          )}
                           {cellShifts.map((s) => (
                             <ReadOnlyShiftChip key={s.id} shift={s} hourTypes={hourTypes} boards={boards} />
                           ))}

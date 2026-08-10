@@ -561,6 +561,8 @@ export function HourGrid({
     const timed = here.filter((s) => s.heureDebut && s.heureFin);
     const fullday = here.filter((s) => !(s.heureDebut && s.heureFin));
     const appts = (row.appointments ?? []).filter((a) => a.date === date);
+    // Public holiday for THIS employee's country (per-cell: a MG member's fériés differ from a FR one's).
+    const isHoliday = (row.holidays ?? []).includes(date);
     return (
       <div
         key={date}
@@ -576,9 +578,15 @@ export function HourGrid({
         style={{ ...trackBgBase, height }}
         className={cn(
           'group relative border-b border-r border-border',
+          isHoliday && 'bg-status-pending/10',
           editable && 'cursor-crosshair touch-none',
         )}
       >
+        {isHoliday && (
+          <span className="pointer-events-none absolute left-1 top-1 z-30 rounded bg-status-pending/20 px-1 text-[9px] font-semibold uppercase tracking-wide text-status-pending">
+            Férié
+          </span>
+        )}
         {fullday.map((s, i) => renderFullDay(s, i, fullday.length))}
         {timed.map((s) =>
           renderTimed(s, drag != null && 'shift' in drag && drag.shift.id === s.id, lanes.laneOf.get(s.id) ?? 0, lanes.laneCount),
@@ -642,7 +650,10 @@ export function HourGrid({
           Salarié
         </div>
         {days.map((date) => {
-          const isHoliday = holidays?.includes(date) ?? false;
+          // Column header flags a day férié for AT LEAST ONE displayed employee (countries may
+          // differ); the precise per-employee marking is on each cell. Falls back to the prop.
+          const isHoliday =
+            rows.some((r) => (r.holidays ?? []).includes(date)) || (holidays?.includes(date) ?? false);
           return (
           <div key={`h-${date}`} className="sticky top-0 z-30 border-b border-r border-border bg-bg-secondary">
             <div

@@ -9,6 +9,8 @@ interface ContratRow {
   heures_sup_autorisees: boolean;
   seuil_heures_sup_min: number | null;
   alternance: boolean;
+  pays: string | null;
+  ferie_worked_coeff: number | string | null;
   color: string | null;
   work_pattern: number[] | string | null;
   fte_percent: number | null;
@@ -32,6 +34,10 @@ export function rowToContrat(r: ContratRow): Contrat {
     heuresSupAutorisees: r.heures_sup_autorisees,
     seuilHeuresSupMin: r.seuil_heures_sup_min,
     alternance: r.alternance,
+    pays: r.pays ?? 'FR',
+    // decimal comes back as a string on some pg setups → coerce; default 1 when the column
+    // is missing on a not-yet-migrated row.
+    ferieWorkedCoeff: r.ferie_worked_coeff == null ? 1 : Number(r.ferie_worked_coeff),
     color: r.color ?? null,
     workPattern: parseWorkPattern(r.work_pattern),
     ftePercent: r.fte_percent ?? null,
@@ -46,6 +52,8 @@ export interface ContratInput {
   heuresSupAutorisees: boolean;
   seuilHeuresSupMin?: number | null;
   alternance: boolean;
+  pays?: string;
+  ferieWorkedCoeff?: number;
   color?: string | null;
   workPattern?: number[] | null;
   ftePercent?: number | null;
@@ -74,6 +82,8 @@ export const contratService = {
         heures_sup_autorisees: data.heuresSupAutorisees,
         seuil_heures_sup_min: data.seuilHeuresSupMin ?? null,
         alternance: data.alternance,
+        pays: data.pays ?? 'FR',
+        ferie_worked_coeff: data.ferieWorkedCoeff ?? 1,
         color: data.color ?? null,
         work_pattern: data.workPattern != null ? JSON.stringify(data.workPattern) : null,
         fte_percent: data.ftePercent ?? null,
@@ -89,6 +99,8 @@ export const contratService = {
     if (data.heuresSupAutorisees !== undefined) patch.heures_sup_autorisees = data.heuresSupAutorisees;
     if (data.seuilHeuresSupMin !== undefined) patch.seuil_heures_sup_min = data.seuilHeuresSupMin;
     if (data.alternance !== undefined) patch.alternance = data.alternance;
+    if (data.pays !== undefined) patch.pays = data.pays;
+    if (data.ferieWorkedCoeff !== undefined) patch.ferie_worked_coeff = data.ferieWorkedCoeff;
     if (data.color !== undefined) patch.color = data.color;
     if (data.workPattern !== undefined) {
       patch.work_pattern = data.workPattern != null ? JSON.stringify(data.workPattern) : null;
