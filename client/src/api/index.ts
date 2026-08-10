@@ -37,6 +37,7 @@ import type {
   LeaveType,
   LeaveRequest,
   LeaveBalance,
+  UpcomingShift,
   PermissionSet,
   CapabilityDef,
   Client,
@@ -142,6 +143,9 @@ export const authApi = {
   logout: () => post('/auth/logout'),
   me: () => get<SessionInfo>('/auth/me'),
   connectedApps: () => get<ConnectedApp[]>('/auth/connected-apps'),
+  /** Opt-in / configure shift-change notifications (null or 0 = disabled). */
+  setShiftNotify: (minutesBefore: number | null) =>
+    patchReq<{ shiftNotifyBeforeMin: number | null }>('/auth/me/shift-notify', { minutesBefore }),
 };
 
 export interface TenantMember {
@@ -559,7 +563,7 @@ export interface DashboardDTO {
   weekStart: string;
   counter: WeeklyCounterDTO;
   recupSoldeMin: number;
-  nextShift: Shift | null;
+  upcoming: UpcomingShift[];
   leaveBalances: LeaveBalance[];
   leaveTypes: LeaveType[];
   approvals: DashboardApprovals | null;

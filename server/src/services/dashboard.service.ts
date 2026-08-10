@@ -1,10 +1,9 @@
 import { db } from '../db';
-import type { Shift, WeeklyCounter, LeaveBalance, LeaveType, User } from '@obliplan/shared';
+import type { WeeklyCounter, LeaveBalance, LeaveType, User, UpcomingShift } from '@obliplan/shared';
 import { planningService } from './planning.service';
 import { leaveRequestService } from './leaveRequest.service';
 import { leaveTypeService } from './leaveType.service';
 import { overtimeDeclarationService } from './overtimeDeclaration.service';
-import { rowToShift } from './shift.service';
 import { mondayOf, todayIso } from '../utils/date';
 
 /** Pending-approval counts - only populated when the caller can validate. */
@@ -21,8 +20,9 @@ export interface DashboardDTO {
   counter: WeeklyCounter;
   /** Running récup balance in minutes. */
   recupSoldeMin: number;
-  /** Next upcoming validated shift with a start time, or null. */
-  nextShift: Shift | null;
+  /** Upcoming validated timed shifts (today onward, hour-type resolved) for the "mon créneau"
+   *  widget. The client derives the in-progress / next one from the Paris clock. */
+  upcoming: UpcomingShift[];
   /** Per-type leave balances (allowance − consumed − pending). */
   leaveBalances: LeaveBalance[];
   /** Leave types (for labelling the balances client-side). */
@@ -44,11 +44,11 @@ export const dashboardService = {
     // Admin / platform admin see the whole tenant; a manager only their reports.
     const managerId = actor.platformAdmin || actor.role === 'admin' ? null : actor.userId;
 
-    const [week, leaveBalances, leaveTypes, nextShift, pendingLeave, pendingOvertime] = await Promise.all([
+    const [week, leaveBalances, leaveTypes, upcoming, pendingLeave, pendingOvertime] = await Promise.all([
       planningService.getUserWeek(tenantId, user, monday),
       leaveRequestService.balancesForUser(tenantId, user.id),
       leaveTypeService.getAll(tenantId),
-      this.nextShift(tenantId, user.id, today),
+      this.upcomingShifts(tenantId, user.id, today),
       canValidate ? leaveRequestService.getPending(tenantId, managerId) : Promise.resolve([]),
       canValidate ? overtimeDeclarationService.getPending(tenantId, managerId) : Promise.resolve([]),
     ]);
@@ -57,7 +57,7 @@ export const dashboardService = {
       weekStart: monday,
       counter: week.counter,
       recupSoldeMin: week.recupSoldeMin,
-      nextShift,
+      upcoming,
       leaveBalances,
       leaveTypes,
       approvals: canValidate
@@ -66,17 +66,54 @@ export const dashboardService = {
     };
   },
 
-  /** The next validated, timed shift on or after `fromIso` for a user. */
-  async nextShift(tenantId: number, userId: number, fromIso: string): Promise<Shift | null> {
-    const row = await db('shifts')
-      .where({ tenant_id: tenantId, user_id: userId, statut: 'valide' })
-      .andWhere('date', '>=', fromIso)
-      .whereNotNull('heure_debut')
+  /**
+   * Validated timed shifts on or after `fromIso` (hour-type + project resolved), ordered by
+   * date then start. Covers today's remaining shifts and the next working days, so the client
+   * can show both the in-progress and the next shift (and, at day's end, the next day / Monday).
+   */
+  async upcomingShifts(tenantId: number, userId: number, fromIso: string): Promise<UpcomingShift[]> {
+    const rows = await db('shifts as s')
+      .leftJoin('hour_types as ht', 'ht.id', 's.hour_type_id')
+      .leftJoin('boards as b', 'b.id', 's.board_id')
+      .where({ 's.tenant_id': tenantId, 's.user_id': userId, 's.statut': 'valide' })
+      .andWhere('s.date', '>=', fromIso)
+      .whereNotNull('s.heure_debut')
+      .whereNotNull('s.heure_fin')
       .orderBy([
-        { column: 'date', order: 'asc' },
-        { column: 'heure_debut', order: 'asc' },
+        { column: 's.date', order: 'asc' },
+        { column: 's.heure_debut', order: 'asc' },
       ])
-      .first();
-    return row ? rowToShift(row as Parameters<typeof rowToShift>[0]) : null;
+      .limit(40)
+      .select<
+        {
+          id: number;
+          date: Date | string;
+          heure_debut: string;
+          heure_fin: string;
+          type: string;
+          ht_label: string | null;
+          ht_color: string | null;
+          board_name: string | null;
+        }[]
+      >(
+        's.id',
+        's.date',
+        's.heure_debut',
+        's.heure_fin',
+        's.type',
+        'ht.libelle as ht_label',
+        'ht.color as ht_color',
+        'b.name as board_name',
+      );
+    return rows.map((r) => ({
+      id: r.id,
+      date: typeof r.date === 'string' ? r.date.slice(0, 10) : r.date.toISOString().slice(0, 10),
+      start: r.heure_debut.slice(0, 5),
+      end: r.heure_fin.slice(0, 5),
+      type: r.type as UpcomingShift['type'],
+      hourTypeLabel: r.ht_label ?? null,
+      hourTypeColor: r.ht_color ?? null,
+      boardName: r.board_name ?? null,
+    }));
   },
 };

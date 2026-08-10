@@ -61,6 +61,8 @@ export interface User {
   preferredLanguage: string;
   /** Per-employee opt-in to the self-service récup view (/ma-recup). */
   recupSelfService?: boolean;
+  /** Minutes before each shift change to be notified (push + in-app). Null/undefined = disabled. */
+  shiftNotifyBeforeMin?: number | null;
   // SSO foreign fields - null for local users
   foreignSource?: string | null;
   foreignId?: number | null;
@@ -103,6 +105,28 @@ export interface Contrat {
   ftePercent: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * A lightweight upcoming timed shift for the home dashboard "mon créneau" widget: the
+ * hour-type label/colour are resolved server-side so the card shows "Back" (not "Travail").
+ * The client picks the in-progress / next one from this list using the Paris clock and a
+ * self-refreshing tick, so the widget updates on shift changes without a page reload.
+ */
+export interface UpcomingShift {
+  id: number;
+  /** ISO date yyyy-mm-dd (Paris civil date). */
+  date: string;
+  /** HH:MM start / end. */
+  start: string;
+  end: string;
+  type: ShiftType;
+  /** Hour-type libellé (e.g. "Back"); null when the shift carries no hour type. */
+  hourTypeLabel: string | null;
+  /** Hour-type colour (hex) for the badge; null when none. */
+  hourTypeColor: string | null;
+  /** Project name when the shift is attached to a board; null otherwise. */
+  boardName: string | null;
 }
 
 // ── Jours d'école (alternance) ───────────────────────────────────────────────

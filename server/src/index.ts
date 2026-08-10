@@ -6,6 +6,7 @@ import { config } from './config';
 import { logger } from './utils/logger';
 import { authService } from './services/auth.service';
 import { tenantService } from './services/tenant.service';
+import { startShiftNotifier } from './services/shiftNotifier.service';
 
 async function main() {
   // 1. Run pending migrations.
@@ -24,6 +25,9 @@ async function main() {
   server.listen(config.port, () => {
     logger.info(`Obliplan server listening on port ${config.port} (${config.nodeEnv})`);
   });
+
+  // 4. Background sweeps.
+  startShiftNotifier();
 
   const shutdown = async (signal: string) => {
     logger.info(`Received ${signal}, shutting down...`);

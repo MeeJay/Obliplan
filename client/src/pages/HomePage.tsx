@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { CalendarClock, Activity, Wallet, ClipboardCheck, Plane, Zap, ArrowRight } from 'lucide-react';
-import type { Shift, WeeklyCounter, LeaveBalance, LeaveType } from '@obliplan/shared';
+import type { WeeklyCounter, LeaveBalance, LeaveType, UpcomingShift } from '@obliplan/shared';
 import { dashboardApi, type DashboardDTO } from '../api';
 import { useAuthStore } from '../store/authStore';
 import { Card, CardHeader, CardBody } from '../components/common/Card';
@@ -19,6 +19,37 @@ const SHIFT_TYPE_LABEL: Record<string, string> = {
   ecole: 'École',
   astreinte: 'Astreinte',
 };
+
+const toMin = (hm: string): number => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
+
+/** Current civil date + minutes-since-midnight in the app's Paris timezone (planning is Paris). */
+function parisNow(): { date: string; minutes: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Paris',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const g = (t: string) => parts.find((p) => p.type === t)?.value ?? '00';
+  const hour = g('hour') === '24' ? '00' : g('hour'); // some engines emit 24 at midnight
+  return { date: `${g('year')}-${g('month')}-${g('day')}`, minutes: Number(hour) * 60 + Number(g('minute')) };
+}
+
+/** Short "dans X" label from a minute count (e.g. 42 → "42 min", 95 → "1 h 35"). */
+function inLabel(min: number): string {
+  if (min <= 0) return "à l'instant";
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h} h ${String(m).padStart(2, '0')}` : `${h} h`;
+}
+
+function shiftLabel(s: UpcomingShift): string {
+  return s.hourTypeLabel ?? SHIFT_TYPE_LABEL[s.type] ?? s.type;
+}
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -39,12 +70,27 @@ export function HomePage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let alive = true;
     setLoading(true);
-    dashboardApi
-      .me()
-      .then(setData)
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
+    const fetchData = (initial: boolean) =>
+      dashboardApi
+        .me()
+        .then((d) => {
+          if (alive) setData(d);
+        })
+        .catch(() => {
+          if (alive && initial) setData(null);
+        })
+        .finally(() => {
+          if (alive && initial) setLoading(false);
+        });
+    void fetchData(true);
+    // Silently refresh every 5 min so a planning change (new/edited shift) surfaces without reload.
+    const id = setInterval(() => void fetchData(false), 5 * 60 * 1000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
   }, []);
 
   return (
@@ -64,7 +110,7 @@ export function HomePage() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <NextShiftCard shift={data.nextShift} />
+          <MyShiftCard upcoming={data.upcoming} />
           <WeekCounterCard counter={data.counter} />
           <BalancesCard
             recupSoldeMin={data.recupSoldeMin}
@@ -91,26 +137,102 @@ function WidgetHeader({ icon, title }: { icon: ReactNode; title: string }) {
   );
 }
 
-function NextShiftCard({ shift }: { shift: Shift | null }) {
+/** Coloured badge for a shift's hour-type (falls back to the accent when no colour). */
+function ShiftBadge({ shift }: { shift: UpcomingShift }) {
+  const c = shift.hourTypeColor;
+  return (
+    <span
+      className={cn('shrink-0 rounded px-2 py-1 text-xs font-medium', !c && 'bg-accent/15 text-accent')}
+      style={c ? { backgroundColor: `${c}22`, color: c } : undefined}
+    >
+      {shiftLabel(shift)}
+    </span>
+  );
+}
+
+/**
+ * "Mon créneau": the in-progress shift (with a progress bar counting down to the next change)
+ * plus the next upcoming one. Self-refreshes every 30 s off the Paris clock, so it rolls over
+ * on a shift change without a page reload. At day's end it just shows the next shift (next
+ * working day / Monday), since `upcoming` already spans the coming days.
+ */
+function MyShiftCard({ upcoming }: { upcoming: UpcomingShift[] }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const now = parisNow();
+  const current = upcoming.find(
+    (s) => s.date === now.date && toMin(s.start) <= now.minutes && now.minutes < toMin(s.end),
+  );
+  const next = upcoming.find(
+    (s) => s.date > now.date || (s.date === now.date && toMin(s.start) > now.minutes),
+  );
+
+  const nextWhen = (s: UpcomingShift): string => (s.date === now.date ? "Aujourd'hui" : dayLabel(s.date));
+
   return (
     <Card>
-      <WidgetHeader icon={<CalendarClock size={16} />} title="Prochain créneau" />
+      <WidgetHeader icon={<CalendarClock size={16} />} title="Mon créneau" />
       <CardBody>
-        {!shift ? (
+        {!current && !next ? (
           <p className="py-4 text-center text-sm text-text-muted">Aucun créneau validé à venir.</p>
         ) : (
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-lg font-semibold capitalize text-text-primary">{dayLabel(shift.date)}</div>
-              <div className="mt-0.5 font-mono text-sm text-text-secondary">
-                {shift.heureDebut ?? '-'}
-                {shift.heureFin ? ` – ${shift.heureFin}` : ''}
+          <div className="space-y-4">
+            {current && (
+              <div>
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-status-up" />
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-status-up">En cours</span>
+                    </div>
+                    <div className="mt-1 font-mono text-sm text-text-secondary">
+                      {current.start} – {current.end}
+                      {current.boardName && <span className="ml-2 text-text-muted">{current.boardName}</span>}
+                    </div>
+                  </div>
+                  <ShiftBadge shift={current} />
+                </div>
+                {(() => {
+                  const s = toMin(current.start);
+                  const e = toMin(current.end);
+                  const pct = e > s ? Math.min(100, Math.max(0, ((now.minutes - s) / (e - s)) * 100)) : 0;
+                  const remaining = Math.max(0, e - now.minutes);
+                  const barColor = current.hourTypeColor ?? 'rgb(var(--c-accent))';
+                  return (
+                    <>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-bg-tertiary">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: barColor }} />
+                      </div>
+                      <div className="mt-1 text-[12px] text-text-muted">
+                        {next && shiftLabel(next) !== shiftLabel(current)
+                          ? `Changement vers ${shiftLabel(next)} dans ${inLabel(remaining)}`
+                          : `Fin dans ${inLabel(remaining)}`}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
-              {shift.note && <div className="mt-1 text-[13px] text-text-muted">{shift.note}</div>}
-            </div>
-            <span className="shrink-0 rounded bg-accent/15 px-2 py-1 text-xs font-medium text-accent">
-              {SHIFT_TYPE_LABEL[shift.type] ?? shift.type}
-            </span>
+            )}
+
+            {next && (
+              <div className={cn(current && 'border-t border-border pt-3')}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">À venir</div>
+                    <div className="mt-1 text-sm font-medium capitalize text-text-primary">{nextWhen(next)}</div>
+                    <div className="mt-0.5 font-mono text-sm text-text-secondary">
+                      {next.start} – {next.end}
+                      {next.boardName && <span className="ml-2 text-text-muted">{next.boardName}</span>}
+                    </div>
+                  </div>
+                  <ShiftBadge shift={next} />
+                </div>
+              </div>
+            )}
           </div>
         )}
       </CardBody>

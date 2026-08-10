@@ -271,6 +271,56 @@ function PushNotificationsCard() {
   );
 }
 
+/** Opt-in to shift-change notifications: an alert `lead` minutes before each change + one at it. */
+function ShiftNotifyCard() {
+  const user = useAuthStore((s) => s.user);
+  const checkSession = useAuthStore((s) => s.checkSession);
+  const [busy, setBusy] = useState(false);
+  const current = user?.shiftNotifyBeforeMin ?? null;
+
+  async function save(min: number | null) {
+    setBusy(true);
+    try {
+      await authApi.setShiftNotify(min);
+      await checkSession();
+      toast.success(min ? `Alerte ${min} min avant chaque changement de créneau.` : 'Alertes de créneau désactivées.');
+    } catch {
+      toast.error('Impossible de modifier ce réglage.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <span className="text-sm font-medium text-text-secondary">Notifications de créneau</span>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        <p className="text-sm text-text-secondary">
+          Soyez prévenu avant chaque changement de créneau (ex Back → Front), puis au moment du changement.
+          Utilise les notifications push ci-dessus.
+        </p>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-text-secondary">Me prévenir</label>
+          <select
+            value={current ?? 'off'}
+            disabled={busy}
+            onChange={(e) => void save(e.target.value === 'off' ? null : Number(e.target.value))}
+            className="rounded-md border border-border bg-bg-tertiary px-3 py-1.5 text-sm text-text-primary"
+          >
+            <option value="off">Désactivé</option>
+            <option value="5">5 min avant</option>
+            <option value="10">10 min avant</option>
+            <option value="15">15 min avant</option>
+            <option value="30">30 min avant</option>
+          </select>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
 export function ProfilePage() {
   const { user } = useAuthStore();
   const { theme, setTheme } = useUiStore();
@@ -307,6 +357,8 @@ export function ProfilePage() {
       <InstallAppCard />
 
       <PushNotificationsCard />
+
+      <ShiftNotifyCard />
 
       <GdprExportCard />
 

@@ -18,6 +18,7 @@ export interface UserRow {
   preferred_language: string | null;
   preferences: UserPreferences | string | null;
   recup_self_service: boolean | null;
+  shift_notify_before_min: number | null;
   foreign_source: string | null;
   foreign_id: number | null;
   foreign_source_url: string | null;
@@ -42,6 +43,7 @@ export function rowToUser(row: UserRow): User {
     preferences: prefs ?? null,
     preferredLanguage: row.preferred_language ?? 'fr',
     recupSelfService: row.recup_self_service ?? false,
+    shiftNotifyBeforeMin: row.shift_notify_before_min ?? null,
     foreignSource: row.foreign_source ?? null,
     foreignId: row.foreign_id ?? null,
     foreignSourceUrl: row.foreign_source_url ?? null,

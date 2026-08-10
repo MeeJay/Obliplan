@@ -99,6 +99,22 @@ export const authController = {
   },
 
   /**
+   * PATCH /api/auth/me/shift-notify - self opt-in to shift-change notifications.
+   * Body { minutesBefore: number|null }: null (or ≤0) disables; a positive value is the lead time.
+   */
+  async setShiftNotify(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const raw = (req.body as { minutesBefore?: number | null }).minutesBefore;
+      const minutesBefore =
+        raw === null || raw === undefined || Number(raw) <= 0 ? null : Math.min(120, Math.round(Number(raw)));
+      await db('users').where({ id: req.session.userId! }).update({ shift_notify_before_min: minutesBefore, updated_at: new Date() });
+      res.json({ success: true, data: { shiftNotifyBeforeMin: minutesBefore } });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
    * GET /api/auth/connected-apps - Obli* apps reachable via Obligate, for the
    * header app switcher. Scoped to the user's Obligate permissions.
    */
