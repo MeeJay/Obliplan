@@ -5,6 +5,7 @@ import { tenantService } from '../services/tenant.service';
 import { obligateService } from '../services/obligate.service';
 import { permissionService } from '../services/permission.service';
 import { tenantModuleService } from '../services/tenantModule.service';
+import { notify } from '../services/notify';
 import { AppError } from '../middleware/errorHandler';
 import type { LoginRequest, SessionInfo } from '@obliplan/shared';
 
@@ -108,6 +109,19 @@ export const authController = {
       const minutesBefore =
         raw === null || raw === undefined || Number(raw) <= 0 ? null : Math.min(120, Math.round(Number(raw)));
       await db('users').where({ id: req.session.userId! }).update({ shift_notify_before_min: minutesBefore, updated_at: new Date() });
+
+      // Immediate confirmation on ENABLE so the user sees (and can verify) that push + in-app
+      // work, without waiting for the next real shift change.
+      const tid = req.session.currentTenantId;
+      if (minutesBefore && tid) {
+        void notify(tid, {
+          recipientIds: [req.session.userId!],
+          type: 'planning.shift_change_pref',
+          title: 'Notifications de créneau activées',
+          body: `Vous serez prévenu ${minutesBefore} min avant chaque changement de créneau.`,
+          link: '/mon-planning',
+        });
+      }
       res.json({ success: true, data: { shiftNotifyBeforeMin: minutesBefore } });
     } catch (err) {
       next(err);

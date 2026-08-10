@@ -119,6 +119,7 @@ async function tick(): Promise<void> {
       const preKey = `${now.date}:${s.id}:pre`;
       if (lead > 0 && preTarget >= 0 && now.minutes >= preTarget && now.minutes < preTarget + WINDOW_MIN && !sent.has(preKey)) {
         sent.add(preKey);
+        logger.info({ userId: s.user_id, shiftId: s.id, label, at: start }, 'shiftNotifier: heads-up sent');
         void notify(s.tenant_id, {
           recipientIds: [s.user_id],
           type: 'planning.shift_change_pre',
@@ -132,6 +133,7 @@ async function tick(): Promise<void> {
       const startKey = `${now.date}:${s.id}:start`;
       if (now.minutes >= startMin && now.minutes < startMin + WINDOW_MIN && !sent.has(startKey)) {
         sent.add(startKey);
+        logger.info({ userId: s.user_id, shiftId: s.id, label, at: start }, 'shiftNotifier: change sent');
         void notify(s.tenant_id, {
           recipientIds: [s.user_id],
           type: 'planning.shift_change',
