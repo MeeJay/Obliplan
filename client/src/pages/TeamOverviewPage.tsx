@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { CalendarRange, Eye, CalendarClock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Shift, TeamOverviewDTO, TeamOverviewMember } from '@obliplan/shared';
-import { planningApi, hourTypeApi } from '../api';
+import { planningApi, hourTypeApi, boardApi } from '../api';
 import { addDaysIso, dayLabel, mondayOfIso, todayIso } from '../utils/format';
 import { WeekNav } from '../components/planning/WeekNav';
-import { SHIFT_META, TIMED_SHIFT_TYPES, type HourTypeLookup } from '../components/planning/shiftMeta';
+import { SHIFT_META, TIMED_SHIFT_TYPES, type HourTypeLookup, type BoardLookup } from '../components/planning/shiftMeta';
 import { shadeForProject } from '../components/planning/colorShade';
 import { HolidayPill } from '../components/planning/HolidayPill';
 import { Card } from '../components/common/Card';
@@ -36,6 +36,7 @@ export function TeamOverviewPage() {
   const [monday, setMonday] = useState(() => mondayOfIso(todayIso()));
   const [data, setData] = useState<TeamOverviewDTO | null>(null);
   const [hourTypes, setHourTypes] = useState<HourTypeLookup>({});
+  const [boards, setBoards] = useState<BoardLookup>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [visibleTeams, setVisibleTeams] = useState<Set<number>>(readVisibleTeams);
@@ -49,6 +50,10 @@ export function TeamOverviewPage() {
         setHourTypes(Object.fromEntries(list.map((h) => [h.id, { libelle: h.libelle, color: h.color }]))),
       )
       .catch(() => setHourTypes({}));
+    boardApi
+      .list()
+      .then((list) => setBoards(Object.fromEntries(list.map((b) => [b.id, { name: b.name }]))))
+      .catch(() => setBoards({}));
     planningApi
       .teams()
       .then((teams) => setTeamMeta(buildTeamMeta(teams)))
@@ -161,7 +166,7 @@ export function TeamOverviewPage() {
                       <td key={iso} className="h-[92px] border-b border-r border-border align-top">
                         <div className="flex h-full flex-col gap-1 p-1">
                           {cellShifts.map((s) => (
-                            <ReadOnlyShiftChip key={s.id} shift={s} hourTypes={hourTypes} />
+                            <ReadOnlyShiftChip key={s.id} shift={s} hourTypes={hourTypes} boards={boards} />
                           ))}
                           {cellAppts.map((a) => (
                             <ReadOnlyApptChip key={`appt-${a.id}`} appt={a} />
@@ -203,15 +208,16 @@ function ReadOnlyApptChip({ appt }: { appt: TeamOverviewMember['appointments'][n
 }
 
 /** A non-interactive shift chip - reuses SHIFT_META + hour-type colours like WeekTable/RotaGrid, but no affordances. */
-function ReadOnlyShiftChip({ shift, hourTypes }: { shift: Shift; hourTypes: HourTypeLookup }) {
+function ReadOnlyShiftChip({ shift, hourTypes, boards }: { shift: Shift; hourTypes: HourTypeLookup; boards: BoardLookup }) {
   const meta = SHIFT_META[shift.type];
   const timed = TIMED_SHIFT_TYPES.includes(shift.type);
   const time = shift.heureDebut && shift.heureFin ? `${shift.heureDebut}–${shift.heureFin}` : null;
   const ht = shift.hourTypeId != null ? hourTypes[shift.hourTypeId] : undefined;
+  const board = shift.boardId != null ? boards[shift.boardId] : undefined;
   const colored = shadeForProject(ht?.color, shift.boardId);
   return (
     <div
-      title={[meta.label, time, ht?.libelle].filter(Boolean).join(' · ')}
+      title={[meta.label, board?.name, time, ht?.libelle].filter(Boolean).join(' · ')}
       style={colored ? { backgroundColor: `${colored}22`, borderColor: colored, color: colored } : undefined}
       className={cn(
         'rounded border px-1.5 py-0.5 text-left text-[11px] leading-tight',
@@ -219,7 +225,12 @@ function ReadOnlyShiftChip({ shift, hourTypes }: { shift: Shift; hourTypes: Hour
       )}
     >
       <div className="flex items-center justify-between gap-1">
-        <span className="truncate font-medium">{ht?.libelle ?? meta.label}</span>
+        {/* Hour-type label + project name share the left side; the pair truncates so it never
+            pushes the time out of the chip ("sans dépasser sur l'heure prévue"). */}
+        <span className="min-w-0 truncate">
+          <span className="font-medium">{ht?.libelle ?? meta.label}</span>
+          {board && <span className="opacity-80"> · {board.name}</span>}
+        </span>
         {timed && time && <span className="shrink-0 font-mono text-[10px]">{time}</span>}
       </div>
     </div>

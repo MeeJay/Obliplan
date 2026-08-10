@@ -31,6 +31,8 @@ export interface HourGridProps {
   hourEnd: number;
   /** Lookup of hour-type id → libellé + colour (drives block colour/label). */
   hourTypes: Record<number, { libelle: string; color: string | null }>;
+  /** Lookup of project (board) id → name, shown as the block subtitle under the time range. */
+  boards?: Record<number, { name: string }>;
   /** ISO dates within `days` that are public holidays: marks the day header only, non-blocking. */
   holidays?: string[];
   /** Optional contract lookup for the left-column colour dot. */
@@ -125,6 +127,7 @@ export function HourGrid({
   days,
   rows,
   teamLabels,
+  boards,
   hourStart,
   hourEnd,
   hourTypes,
@@ -353,6 +356,7 @@ export function HourGrid({
     const ve = clamp(endMin, vs + SNAP_MIN, axisEnd);
     const meta = SHIFT_META[s.type];
     const ht = s.hourTypeId != null ? hourTypes[s.hourTypeId] : undefined;
+    const board = s.boardId != null ? boards?.[s.boardId] : undefined;
     const label = ht?.libelle ?? meta.label;
     // Hour-type colour shaded per project so each project is a distinct tint of the same family.
     const colored = shadeForProject(ht?.color, s.boardId);
@@ -381,7 +385,7 @@ export function HourGrid({
       <div
         key={s.id}
         data-shift-id={s.id}
-        title={[label, timeText, meta.label].filter(Boolean).join(' · ')}
+        title={[label, board?.name, timeText, meta.label].filter(Boolean).join(' · ')}
         onPointerDown={editable && !selectMode ? (e) => onBodyDown(e, s) : undefined}
         onPointerMove={editable && !selectMode ? onBodyMove : undefined}
         onPointerUp={editable && !selectMode ? onBodyUp : undefined}
@@ -421,6 +425,9 @@ export function HourGrid({
           <span className="truncate text-[11px] font-medium">{label}</span>
         </span>
         <span className="mt-0.5 truncate font-mono text-[10px] leading-none opacity-80">{timeText}</span>
+        {board && (
+          <span className="mt-0.5 truncate text-[10px] font-medium leading-none opacity-90">{board.name}</span>
+        )}
         {editable && !selectMode && (
           <span
             {...handleProps('end')}

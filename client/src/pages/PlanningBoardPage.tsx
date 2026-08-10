@@ -579,6 +579,7 @@ export function PlanningBoardPage() {
       days={gDays}
       rows={gRows}
       teamLabels={teamLabels}
+      boards={boards}
       holidays={gHolidays}
       hourStart={hourStart}
       hourEnd={Math.max(hourStart + 1, hourEnd)}
