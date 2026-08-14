@@ -186,6 +186,30 @@ export const planningService = {
     return map;
   },
 
+  /**
+   * The subset of `userIds` that is EXCLUDED from every planning roster, i.e. management-only
+   * members: they hold at least one `team_memberships` row in this tenant and NONE of them has
+   * `in_planning = true` (the "pas dans le planning" checkbox, manager role only - see
+   * `teamService.setMembers`). A user with no team at all is NOT excluded: they simply have no
+   * team, which the grids handle separately ("sans équipe"). A manager excluded from one team but
+   * an in-planning member of another keeps their row, carried by that second team.
+   */
+  async planningExcludedIds(tenantId: number, userIds: number[]): Promise<Set<number>> {
+    if (userIds.length === 0) return new Set();
+    const rows = await db<{ user_id: number; in_planning: boolean }>('team_memberships as tm')
+      .join('user_teams as ut', 'ut.id', 'tm.team_id')
+      .where('ut.tenant_id', tenantId)
+      .whereIn('tm.user_id', userIds)
+      .select('tm.user_id', 'tm.in_planning');
+    const anyMembership = new Set<number>();
+    const anyInPlanning = new Set<number>();
+    for (const r of rows) {
+      anyMembership.add(r.user_id);
+      if (r.in_planning) anyInPlanning.add(r.user_id);
+    }
+    return new Set([...anyMembership].filter((id) => !anyInPlanning.has(id)));
+  },
+
   /** All weeks (Mon-Sun) intersecting a calendar month, for one user. */
   async getUserMonth(tenantId: number, user: User, month: string): Promise<UserWeek[]> {
     const [y, m] = month.split('-').map(Number);
@@ -444,6 +468,12 @@ export const planningService = {
         if (self) members = [self, ...members];
       }
     }
+    // A management-only member has no row in the grid, NO MATTER how they got into `members`:
+    // neither via the admin whole-tenant branch, nor via the self-add above (a manager excluded
+    // from the planning does not see their own row either). This is the single choke point where
+    // `in_planning` is enforced for the grid, so both branches are covered by construction.
+    const excluded = await this.planningExcludedIds(tenantId, members.map((u) => u.id));
+    if (excluded.size) members = members.filter((u) => !excluded.has(u.id));
     const [weeks, teamMap] = await Promise.all([
       Promise.all(members.map((u) => this.getUserWeek(tenantId, u, monday))),
       this.teamIdsByUser(tenantId, members.map((u) => u.id)),
@@ -461,7 +491,11 @@ export const planningService = {
    * schedules cannot leak. Members are sorted by displayName ?? username.
    */
   async getTeamOverview(tenantId: number, monday: string): Promise<TeamOverviewDTO> {
-    const members = (await userService.getByTenant(tenantId)).filter((u) => u.isActive);
+    const active = (await userService.getByTenant(tenantId)).filter((u) => u.isActive);
+    // Same rule as the grid: management-only members (in_planning=false everywhere) are not part
+    // of any planning roster, so they never surface here either.
+    const excluded = await this.planningExcludedIds(tenantId, active.map((u) => u.id));
+    const members = excluded.size ? active.filter((u) => !excluded.has(u.id)) : active;
     const ids = members.map((u) => u.id);
     const end = addDays(monday, 7);
 
