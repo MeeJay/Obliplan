@@ -175,6 +175,9 @@ export interface Shift {
   type: ShiftType;
   statut: ShiftStatus;
   note: string | null;
+  /** For full-day absence blocks (congé/absence/récup): 'full' (default), 'am' or 'pm'.
+   *  A half-day block neutralises only 0.5 of the day in the counter. Ignored on timed shifts. */
+  dayPeriod: 'full' | 'am' | 'pm';
   /** Optional hour/activity type (label + color) this shift counts against. */
   hourTypeId: number | null;
   /** Optional project (board) this shift is worked on. */

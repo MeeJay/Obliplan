@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import type { Shift, PlanningAppointment } from '@obliplan/shared';
 import type { UserWeekDTO } from '../../api';
 import { addDaysIso, dayLabel, minToSignedHm } from '../../utils/format';
-import { SHIFT_META, TIMED_SHIFT_TYPES, type HourTypeLookup, type BoardLookup } from './shiftMeta';
+import { SHIFT_META, TIMED_SHIFT_TYPES, periodSuffix, type HourTypeLookup, type BoardLookup } from './shiftMeta';
 import { shadeForProject } from './colorShade';
 import { HolidayPill } from './HolidayPill';
 import { cn } from '../../utils/cn';
@@ -317,7 +317,10 @@ function ShiftChip({ shift, editable = true, hourTypes, boards, onDragStart, onD
       )}
     >
       <div className="flex items-center justify-between gap-1">
-        <span className="truncate font-medium">{ht?.libelle ?? meta.label}</span>
+        <span className="truncate font-medium">
+          {ht?.libelle ?? meta.label}
+          {periodSuffix(shift.dayPeriod)}
+        </span>
         {timed && time && <span className="shrink-0 font-mono text-[10px]">{time}</span>}
       </div>
       {board && <span className="mt-0.5 block truncate text-[10px] opacity-80">{board.name}</span>}

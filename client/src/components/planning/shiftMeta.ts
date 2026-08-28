@@ -16,6 +16,11 @@ export const SHIFT_META: Record<ShiftType, { label: string; cls: string }> = {
 /** Types that carry a time range (shown with hours): work, on-call and the lunch break. */
 export const TIMED_SHIFT_TYPES: ShiftType[] = ['travail', 'astreinte', 'pause'];
 
+/** " · Matin" / " · Après-midi" suffix for a half-day absence block ('full' → ''). */
+export function periodSuffix(dayPeriod?: 'full' | 'am' | 'pm' | null): string {
+  return dayPeriod === 'am' ? ' · Matin' : dayPeriod === 'pm' ? ' · Après-midi' : '';
+}
+
 /** Lightweight lookup maps for decorating shift chips with their hour type / project. */
 export type HourTypeLookup = Record<number, { libelle: string; color: string | null }>;
 export type BoardLookup = Record<number, { name: string }>;

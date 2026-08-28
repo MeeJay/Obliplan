@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Plus, CalendarClock } from 'lucide-react';
 import type { Shift, PlanningAppointment } from '@obliplan/shared';
 import { addDaysIso, dayLabel } from '../../utils/format';
-import { SHIFT_META, TIMED_SHIFT_TYPES, type HourTypeLookup, type BoardLookup } from './shiftMeta';
+import { SHIFT_META, TIMED_SHIFT_TYPES, periodSuffix, type HourTypeLookup, type BoardLookup } from './shiftMeta';
 import { shadeForProject } from './colorShade';
 import { HolidayPill } from './HolidayPill';
 import { AppointmentDetailModal } from './AppointmentDetailModal';
@@ -62,7 +62,7 @@ export function WeekTable({ monday, shifts, editable, onAdd, onEdit, hourTypes =
               const colored = shadeForProject(ht?.color, s.boardId);
               // Project is the headline (coloured by hour-type); the hour-type libellé becomes the subtitle.
               // No project -> hour-type libellé is the headline; no hour-type -> fall back to the shift meta label.
-              const headline = board ? board.name : ht?.libelle ?? meta.label;
+              const headline = (board ? board.name : ht?.libelle ?? meta.label) + periodSuffix(s.dayPeriod);
               const subtitle = board ? ht?.libelle ?? meta.label : null;
               return (
                 <button

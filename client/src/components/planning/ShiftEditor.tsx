@@ -25,6 +25,8 @@ export function ShiftEditor({ userId, date, shift, onClose, onSaved }: ShiftEdit
   const [note, setNote] = useState(shift?.note ?? '');
   const [hourTypeId, setHourTypeId] = useState<number | null>(shift?.hourTypeId ?? null);
   const [boardId, setBoardId] = useState<number | null>(shift?.boardId ?? null);
+  // Half-day period for full-day absence blocks (congé/absence/récup): full / am / pm.
+  const [dayPeriod, setDayPeriod] = useState<'full' | 'am' | 'pm'>(shift?.dayPeriod ?? 'full');
   const [hourTypes, setHourTypes] = useState<HourType[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -42,6 +44,8 @@ export function ShiftEditor({ userId, date, shift, onClose, onSaved }: ShiftEdit
   const [savingBoard, setSavingBoard] = useState(false);
 
   const isWork = TIMED_SHIFT_TYPES.includes(type);
+  // Types where a half-day (matin/après-midi) makes sense.
+  const canHalfDay = (['conge', 'absence', 'recup'] as ShiftType[]).includes(type);
 
   useEffect(() => {
     hourTypeApi.list().then(setHourTypes).catch(() => setHourTypes([]));
@@ -95,6 +99,7 @@ export function ShiftEditor({ userId, date, shift, onClose, onSaved }: ShiftEdit
         hourTypeId: isWork ? hourTypeId : null,
         boardId: isWork ? boardId : null,
         note: note || null,
+        dayPeriod: canHalfDay ? dayPeriod : 'full',
         // A timed shift carves overlaps by default; parallel mode keeps them side by side.
         carve: isWork ? !parallel : false,
       };
@@ -152,6 +157,17 @@ export function ShiftEditor({ userId, date, shift, onClose, onSaved }: ShiftEdit
               </option>
             ))}
           </Select>
+          {canHalfDay && (
+            <Select
+              label="Période"
+              value={dayPeriod}
+              onChange={(e) => setDayPeriod(e.target.value as 'full' | 'am' | 'pm')}
+            >
+              <option value="full">Journée entière</option>
+              <option value="am">Matin (½ journée)</option>
+              <option value="pm">Après-midi (½ journée)</option>
+            </Select>
+          )}
           {isWork && (
             <>
               <div className="grid grid-cols-3 gap-2">

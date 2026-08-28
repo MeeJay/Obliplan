@@ -14,6 +14,7 @@ interface ShiftRow {
   type: string;
   statut: string;
   note: string | null;
+  day_period: string | null;
   hour_type_id: number | null;
   board_id: number | null;
   created_by: number | null;
@@ -37,6 +38,7 @@ export function rowToShift(r: ShiftRow): Shift {
     type: r.type as ShiftType,
     statut: r.statut as ShiftStatus,
     note: r.note,
+    dayPeriod: (r.day_period ?? 'full') as Shift['dayPeriod'],
     hourTypeId: r.hour_type_id,
     boardId: r.board_id,
     createdBy: r.created_by,
@@ -55,6 +57,7 @@ export interface ShiftInput {
   type: ShiftType;
   statut?: ShiftStatus;
   note?: string | null;
+  dayPeriod?: 'full' | 'am' | 'pm';
   hourTypeId?: number | null;
   boardId?: number | null;
 }
@@ -169,6 +172,7 @@ export const shiftService = {
         type: data.type,
         statut: data.statut ?? 'brouillon',
         note: data.note ?? null,
+        day_period: data.dayPeriod ?? 'full',
         hour_type_id: data.hourTypeId ?? null,
         board_id: data.boardId ?? null,
         created_by: actorId,
@@ -190,6 +194,7 @@ export const shiftService = {
     if (data.type !== undefined) patch.type = data.type;
     if (data.statut !== undefined) patch.statut = data.statut;
     if (data.note !== undefined) patch.note = data.note;
+    if (data.dayPeriod !== undefined) patch.day_period = data.dayPeriod;
     if (data.hourTypeId !== undefined) patch.hour_type_id = data.hourTypeId;
     if (data.boardId !== undefined) patch.board_id = data.boardId;
     const [row] = await db<ShiftRow>('shifts')

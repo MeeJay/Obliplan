@@ -160,7 +160,21 @@ function dayNeutralisation(
     if (iso < lv.startDate || iso > lv.endDate) continue;
     leaveF = Math.max(leaveF, lv.halfDay && lv.startDate === lv.endDate ? 0.5 : 1);
   }
-  if (shifts.some((s) => s.date === iso && NEUTRALISING_SHIFT_TYPES.includes(s.type))) leaveF = 1;
+  // Drawn conge/absence/recup blocks neutralise the day; a half-day block (am/pm) neutralises
+  // 0.5, so a morning congé + a worked afternoon nets an even balance. Morning + afternoon
+  // absence blocks combine to a full day.
+  let hasFull = false;
+  let hasAm = false;
+  let hasPm = false;
+  for (const s of shifts) {
+    if (s.date !== iso || !NEUTRALISING_SHIFT_TYPES.includes(s.type)) continue;
+    const p = s.dayPeriod ?? 'full';
+    if (p === 'am') hasAm = true;
+    else if (p === 'pm') hasPm = true;
+    else hasFull = true;
+  }
+  const blockF = hasFull ? 1 : (hasAm ? 0.5 : 0) + (hasPm ? 0.5 : 0);
+  leaveF = Math.max(leaveF, blockF);
   return { factor: Math.min(1, Math.max(holidayF, ecoleF, leaveF)), leaveFactor: leaveF };
 }
 

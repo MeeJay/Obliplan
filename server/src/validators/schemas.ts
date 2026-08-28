@@ -120,6 +120,8 @@ export const createShiftSchema = z.object({
   note: z.string().max(2000).nullable().optional(),
   hourTypeId: z.number().int().positive().nullable().optional(),
   boardId: z.number().int().positive().nullable().optional(),
+  /** Half-day for a full-day absence block (congé/absence/récup): 'full' | 'am' | 'pm'. */
+  dayPeriod: z.enum(['full', 'am', 'pm']).optional(),
   /** Carve overlapping shifts instead of stacking on them (default true; false = keep the overlap). */
   carve: z.boolean().optional(),
 });

@@ -3,7 +3,7 @@ import { Copy, ClipboardPaste } from 'lucide-react';
 import type { Shift } from '@obliplan/shared';
 import type { UserWeekDTO } from '../../api';
 import { dayLabel, minToSignedHm } from '../../utils/format';
-import { SHIFT_META } from './shiftMeta';
+import { SHIFT_META, periodSuffix } from './shiftMeta';
 import { shadeForProject } from './colorShade';
 import { HolidayPill } from './HolidayPill';
 import { cn } from '../../utils/cn';
@@ -445,9 +445,10 @@ export function HourGrid({
   function renderFullDay(s: Shift, index: number, count: number) {
     const meta = SHIFT_META[s.type];
     const selected = selectMode && !!selectedIds?.has(s.id);
+    // A half-day block occupies the matching half of the track (am = left, pm = right).
     const style: CSSProperties = {
-      left: 2,
-      right: 2,
+      left: s.dayPeriod === 'pm' ? '50%' : 2,
+      right: s.dayPeriod === 'am' ? '50%' : 2,
       top: `calc(${(index / count) * 100}% + 2px)`,
       height: `calc(${100 / count}% - 4px)`,
     };
@@ -455,7 +456,7 @@ export function HourGrid({
       <div
         key={s.id}
         data-shift-id={s.id}
-        title={meta.label}
+        title={`${meta.label}${periodSuffix(s.dayPeriod)}`}
         onPointerDown={editable ? (e) => e.stopPropagation() : undefined}
         onClick={
           selectMode && onToggleSelectShift
@@ -476,7 +477,10 @@ export function HourGrid({
           selected && 'z-20 ring-2 ring-accent ring-offset-1 ring-offset-bg-secondary',
         )}
       >
-        {meta.label}
+        <span className="truncate px-1">
+          {meta.label}
+          {periodSuffix(s.dayPeriod)}
+        </span>
       </div>
     );
   }
